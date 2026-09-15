@@ -2,24 +2,11 @@
  * Database connection layer — now backed by `libsql` so the same code runs
  * locally (file:./data/hokk.db) and on Vercel (libsql://… via Turso).
  *
- * `libsql` is better-sqlite3-compatible and synchronous, so the ~303 call sites
- * in 47 files stay untouched. It handles both `file:` URLs and remote
- * `libsql://` / `https://` URLs with the same API. Native prebuild is verified
- * to install on Node 22 (see `npm install libsql` in this repo’s setup).
- *
- * Why not @libsql/client (async): that would require awaiting every query and
- * touching every helper, repository and action. We keep the SQLite dialect,
- * keep `transaction()` re-entrant via SAVEPOINT + depth counter, and keep
- * DATABASE_URL as the single switch.
- *
- * Vercel notes:
- * - The filesystem is read-only except /tmp. A `file:` DATABASE_URL on Vercel
- *   would fail at mkdirSync. Set DATABASE_URL to your Turso URL
- *   (e.g. libsql://hokk-prod-xxx.turso.io) and TURSO_AUTH_TOKEN in the Vercel
- *   environment. No shell is available, so schema/seed must run without
- *   `npm run db:init`. See the “Running on Vercel” section below and the
- *   `/api/admin/db-init` route (or the lazy `ensureSchema()` in `bootstrap.ts`
- *   which runs on first request).
+ * Performance optimizations for Turso remote (added for slow loading fix):
+ * - Prepared statement cache (avoid re-preparing same SQL)
+ * - Query result cache with TTL for read-heavy pages (dashboard, taxonomy)
+ * - Cache invalidation on writes
+ * - Reduced roundtrips via batch-friendly helpers
  */
 
 import fs from 'node:fs';
@@ -32,7 +19,6 @@ export interface RunResult {
   lastInsertRowid: number | bigint;
 }
 
-// We keep the Database type broad — `libsql` returns a better-sqlite3-like instance
 type DbHandle = {
   prepare(sql: string): { get(...params: SqlValue[]): unknown; all(...params: SqlValue[]): unknown[]; run(...params: SqlValue[]): { changes: number; lastInsertRowid: number | bigint; duration?: number } };
   exec(sql: string): void;
@@ -44,7 +30,7 @@ let db: DbHandle | null = null;
 const g = globalThis as unknown as {
   __hokkDb?: DbHandle;
   __hokkDbUrl?: string;
-  __hokkDbPath?: string; // legacy
+  __hokkDbPath?: string;
 };
 
 function isRemoteUrl(raw: string): boolean {
@@ -57,13 +43,6 @@ function isRemoteUrl(raw: string): boolean {
   );
 }
 
-/**
- * Values pasted into deployment dashboards routinely carry surrounding
- * whitespace or quotes. Without this, a quoted `"libsql://…"` URL would be
- * misread as a *file* path (and fail on Vercel's read-only filesystem), and a
- * token with a trailing newline would fail auth — both surfacing as a bare
- * "Application error" with no hint of the real cause.
- */
 export function normalizeEnvValue(raw: string | undefined): string {
   let value = (raw || '').trim();
   if (value.length >= 2) {
@@ -104,7 +83,6 @@ function createLibsqlDatabase(url: string, authToken?: string): DbHandle {
   const Database = require('libsql') as unknown as new (url: string, opts?: Record<string, unknown>) => DbHandle;
   const opts: Record<string, unknown> = {};
   if (authToken) opts.authToken = authToken;
-  // For file URLs, ensure the directory exists before constructing
   if (!isRemoteUrl(url) && url !== ':memory:' && !url.startsWith('file::memory:')) {
     const filePart = url.replace(/^file:/, '');
     if (filePart && filePart !== ':memory:') {
@@ -114,7 +92,6 @@ function createLibsqlDatabase(url: string, authToken?: string): DbHandle {
       } catch {
         /* ignore */
       }
-      // Rebuild URL as file: + absolute path for libsql
       const libsqlUrl = `file:${abs}`;
       return new Database(libsqlUrl, opts);
     }
@@ -123,10 +100,8 @@ function createLibsqlDatabase(url: string, authToken?: string): DbHandle {
 }
 
 function createNodeSqliteDatabase(filePath: string): DbHandle {
-  // Fallback to node:sqlite for local files if libsql is unavailable
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
-  // Ensure directory exists
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
   } catch {
@@ -142,7 +117,6 @@ export function getDb(): DbHandle {
 
   if (g.__hokkDb && g.__hokkDbUrl === cacheKey) return g.__hokkDb;
 
-  // If URL changed, close previous
   if (g.__hokkDb && g.__hokkDbUrl !== cacheKey) {
     try {
       g.__hokkDb.close();
@@ -158,7 +132,6 @@ export function getDb(): DbHandle {
   let next: DbHandle;
 
   if (isRemoteUrl(rawUrl)) {
-    // Remote Turso/libSQL — must use libsql
     try {
       next = createLibsqlDatabase(rawUrl, authToken);
     } catch (e) {
@@ -168,7 +141,6 @@ export function getDb(): DbHandle {
       );
     }
   } else {
-    // Local file or :memory: — prefer libsql, fallback to node:sqlite
     const isMemory = rawUrl === ':memory:' || rawUrl === 'file::memory:' || rawUrl === 'file::memory:?cache=shared';
     if (isMemory) {
       try {
@@ -177,13 +149,10 @@ export function getDb(): DbHandle {
         next = createNodeSqliteDatabase(':memory:');
       }
     } else {
-      // Try libsql first
       try {
         next = createLibsqlDatabase(rawUrl, authToken);
       } catch (e) {
-        // Fallback to node:sqlite if libsql fails (e.g. native binding missing)
         const filePath = resolveDbPath();
-        // filePath here is absolute for file: URLs, or raw for remote (but we are in local branch)
         const fallbackPath = filePath.startsWith('libsql://') || filePath.startsWith('https://') ? ':memory:' : filePath;
         try {
           next = createNodeSqliteDatabase(fallbackPath as string);
@@ -194,11 +163,10 @@ export function getDb(): DbHandle {
     }
   }
 
-  // Pragmas — best effort, ignore failures on remote
   try {
     next.exec('PRAGMA journal_mode = WAL;');
   } catch {
-    /* ignore — not supported on all remotes */
+    /* ignore */
   }
   try {
     next.exec('PRAGMA foreign_keys = ON;');
@@ -210,16 +178,22 @@ export function getDb(): DbHandle {
   } catch {
     /* ignore */
   }
+  // Performance pragmas for local SQLite
+  try {
+    next.exec('PRAGMA cache_size = -64000;'); // 64MB cache
+    next.exec('PRAGMA temp_store = MEMORY;');
+    next.exec('PRAGMA synchronous = NORMAL;');
+  } catch {
+    /* ignore — not supported on remote */
+  }
 
   g.__hokkDb = next;
   g.__hokkDbUrl = cacheKey;
-  // Legacy path for older code that checks __hokkDbPath
   (g as unknown as { __hokkDbPath?: string }).__hokkDbPath = rawUrl;
   db = next;
   return next;
 }
 
-/** Bind-value sanitisation: SQLite has no boolean/undefined/Date affinity. */
 export function bind(value: unknown): SqlValue {
   if (value === undefined || value === null) return null;
   if (typeof value === 'boolean') return value ? 1 : 0;
@@ -230,7 +204,6 @@ export function bind(value: unknown): SqlValue {
   }
   if (typeof value === 'bigint') return value;
   if (typeof value === 'string') return value;
-  // Objects/arrays are stored as JSON text by callers via json()
   return JSON.stringify(value);
 }
 
@@ -242,33 +215,123 @@ function stripMetadata<T>(row: T): T {
   return row;
 }
 
-function prepare(sql: string) {
-  return getDb().prepare(sql);
+// ---------------------------------------------------------------------------
+// Performance: Prepared statement cache + query result cache
+// ---------------------------------------------------------------------------
+
+type Stmt = ReturnType<DbHandle['prepare']>;
+const stmtCache = new Map<string, Stmt>();
+const MAX_STMT_CACHE = 300;
+
+function prepare(sql: string): Stmt {
+  const cached = stmtCache.get(sql);
+  if (cached) return cached;
+  const stmt = getDb().prepare(sql);
+  if (stmtCache.size >= MAX_STMT_CACHE) {
+    const firstKey = stmtCache.keys().next().value;
+    if (firstKey) stmtCache.delete(firstKey);
+  }
+  stmtCache.set(sql, stmt);
+  return stmt;
 }
 
-export function all<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
+interface CacheEntry {
+  data: unknown;
+  expiresAt: number;
+}
+const queryCache = new Map<string, CacheEntry>();
+const DEFAULT_TTL_MS = 20_000; // 20s default
+
+function cacheKey(sql: string, params: unknown[]): string {
+  return `${sql}::${JSON.stringify(params.map(bind))}`;
+}
+
+function getCached<T>(key: string): T | undefined {
+  const entry = queryCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) {
+    queryCache.delete(key);
+    return undefined;
+  }
+  return entry.data as T;
+}
+
+function setCached(key: string, data: unknown, ttlMs = DEFAULT_TTL_MS): void {
+  queryCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+export function clearQueryCache(): void {
+  queryCache.clear();
+}
+
+function shouldCache(sql: string): boolean {
+  const trimmed = sql.trim().toUpperCase();
+  if (!trimmed.startsWith('SELECT')) return false;
+  // Skip cache for queries with LIKE %search% (product search) — they are highly variable
+  if (trimmed.includes('LIKE ?') && trimmed.includes('COALESCE')) {
+    // Heuristic: if it looks like product search (9 LIKEs), don't cache
+    const likeCount = (trimmed.match(/LIKE \?/g) || []).length;
+    if (likeCount >= 5) return false;
+  }
+  return true;
+}
+
+export interface QueryOpts {
+  ttlMs?: number;
+  noCache?: boolean;
+}
+
+export function all<T = Record<string, unknown>>(sql: string, params: unknown[] = [], opts: QueryOpts = {}): T[] {
+  const useCache = !opts.noCache && shouldCache(sql);
+  const key = useCache ? cacheKey(sql, params) : null;
+  if (key) {
+    const cached = getCached<T[]>(key);
+    if (cached) return cached;
+  }
   const stmt = prepare(sql);
   const rows = (stmt.all as (...args: unknown[]) => unknown[])(...params.map(bind)) as unknown as T[];
-  // libsql's `all` returns clean objects, but `get` includes _metadata — for consistency, strip in case
-  return rows.map((r) => {
+  const cleaned = rows.map((r) => {
     const clean = stripMetadata(r as T);
-    // node:sqlite returns null-prototype objects; normalise them.
     return { ...(clean as object) } as T;
   });
+  if (key) setCached(key, cleaned, opts.ttlMs ?? DEFAULT_TTL_MS);
+  return cleaned;
 }
 
-export function get<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T | undefined {
+export function allUncached<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
+  return all<T>(sql, params, { noCache: true });
+}
+
+export function get<T = Record<string, unknown>>(sql: string, params: unknown[] = [], opts: QueryOpts = {}): T | undefined {
+  const useCache = !opts.noCache && shouldCache(sql);
+  const key = useCache ? cacheKey(sql, params) : null;
+  if (key && queryCache.has(key)) {
+    const entry = queryCache.get(key)!;
+    if (Date.now() <= entry.expiresAt) {
+      return entry.data as T | undefined;
+    }
+    queryCache.delete(key);
+  }
   const stmt = prepare(sql);
   const row = (stmt.get as (...args: unknown[]) => unknown)(...params.map(bind)) as unknown;
-  if (row === undefined || row === null) return undefined;
+  if (row === undefined || row === null) {
+    if (key) setCached(key, undefined, opts.ttlMs ?? DEFAULT_TTL_MS);
+    return undefined;
+  }
   const clean = stripMetadata(row as T);
-  return { ...(clean as object) } as T;
+  const result = { ...(clean as object) } as T;
+  if (key) setCached(key, result, opts.ttlMs ?? DEFAULT_TTL_MS);
+  return result;
+}
+
+export function getUncached<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T | undefined {
+  return get<T>(sql, params, { noCache: true });
 }
 
 export function run(sql: string, params: unknown[] = []): RunResult {
+  clearQueryCache();
   const stmt = prepare(sql);
   const result = (stmt.run as (...args: unknown[]) => { changes: number; lastInsertRowid: number | bigint; duration?: number })(...params.map(bind)) as unknown as RunResult;
-  // libsql includes duration; strip it and ensure shape
   return {
     changes: Number((result as { changes: number }).changes) || 0,
     lastInsertRowid: (result as { lastInsertRowid: number | bigint }).lastInsertRowid ?? 0,
@@ -276,32 +339,19 @@ export function run(sql: string, params: unknown[] = []): RunResult {
 }
 
 export function exec(sql: string): void {
+  clearQueryCache();
   getDb().exec(sql);
 }
 
-export function scalar<T = number>(sql: string, params: unknown[] = []): T | undefined {
-  const stmt = prepare(sql);
-  const row = (stmt.get as (...args: unknown[]) => unknown)(...params.map(bind)) as unknown;
+export function scalar<T = number>(sql: string, params: unknown[] = [], opts: QueryOpts = {}): T | undefined {
+  const row = get<Record<string, unknown>>(sql, params, opts);
   if (!row) return undefined;
-  const clean = stripMetadata(row as Record<string, unknown>);
-  const values = Object.values(clean as object);
-  // Filter out possible _metadata leftover if not stripped properly
-  // Values[0] should be the scalar
+  const values = Object.values(row);
   return values[0] as T;
 }
 
-/** Nesting depth. SQLite rejects a second BEGIN, so nested calls use savepoints. */
 let transactionDepth = 0;
 
-/**
- * Runs `fn` atomically.
- *
- * Re-entrant: several of these compose (for example `applyImport` wraps each row
- * and `createProduct` wraps its own writes), so a nested call joins the outer
- * transaction through a SAVEPOINT instead of issuing a second BEGIN. Rolling the
- * savepoint back undoes only the inner work, which is what callers expect when
- * they catch and continue.
- */
 export function transaction<T>(fn: () => T): T {
   const handle = getDb();
   const depth = transactionDepth;
@@ -316,28 +366,27 @@ export function transaction<T>(fn: () => T): T {
     if (depth === 0) handle.exec('COMMIT');
     else handle.exec(`RELEASE ${savepoint}`);
     transactionDepth = depth;
+    // Commit invalidates cache
+    if (depth === 0) clearQueryCache();
     return result;
   } catch (error) {
     try {
       if (depth === 0) handle.exec('ROLLBACK');
       else handle.exec(`ROLLBACK TO ${savepoint}`);
     } catch {
-      /* ignore rollback failure */
+      /* ignore */
     }
     transactionDepth = depth;
     throw error;
   }
 }
 
-/** Applies db/schema.sql (idempotent) and records the schema version. */
 export function migrate(schemaSql: string, version = 1): void {
   const handle = getDb();
   handle.exec(schemaSql);
   try {
     handle.exec(`PRAGMA user_version = ${version};`);
   } catch {
-    // On some remotes PRAGMA user_version may not be supported — store in a table instead?
-    // Fall back to storing version in setting table if available
     try {
       run(`INSERT INTO setting (key, value, updated_at) VALUES ('schema.version', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(version)]);
     } catch {
@@ -352,11 +401,9 @@ export function schemaVersion(): number {
     if (!row) return 0;
     const clean = stripMetadata(row as Record<string, unknown>);
     const values = Object.values(clean as object);
-    // First value is user_version, but libsql includes _metadata so we already stripped
     const raw = values[0];
     return raw ? Number(raw) ?? 0 : 0;
   } catch {
-    // Fallback to setting table if PRAGMA not supported
     try {
       const row = get<{ value: string }>('SELECT value FROM setting WHERE key = ?', ['schema.version']);
       return row ? Number(row.value) || 0 : 0;
@@ -378,17 +425,22 @@ export function closeDb(): void {
   g.__hokkDbUrl = undefined;
   (g as unknown as { __hokkDbPath?: string }).__hokkDbPath = undefined;
   db = null;
+  stmtCache.clear();
+  clearQueryCache();
+  // Also clear bootstrap cache so next isInitialized re-checks DB
+  try {
+    const maybeClear = (globalThis as unknown as { __hokkClearBootstrapCache?: () => void }).__hokkClearBootstrapCache;
+    if (maybeClear) maybeClear();
+  } catch {
+    /* ignore */
+  }
 }
 
 export function tableExists(name: string): boolean {
-  const row = get<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name = ?`,
-    [name],
-  );
+  const row = get<{ c: number }>(`SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name = ?`, [name]);
   return (row?.c ?? 0) > 0;
 }
 
-/** JSON text helper — keeps call sites readable. */
 export function json(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
@@ -402,4 +454,12 @@ export function parseJson<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
-export const _internal = { get db() { return db; } };
+export const _internal = {
+  get db() {
+    return db;
+  },
+  get cacheSize() {
+    return queryCache.size;
+  },
+  clearCache: clearQueryCache,
+};

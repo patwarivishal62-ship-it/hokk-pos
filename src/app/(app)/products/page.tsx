@@ -35,7 +35,8 @@ interface Params {
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<Params> }) {
   const user = await requireUser();
   const params = await searchParams;
-  const limit = Math.min(200, Math.max(10, Number(params.limit ?? 50) || 50));
+  // Performance: reduce default limit from 50 to 25 for faster initial load
+  const limit = Math.min(100, Math.max(10, Number(params.limit ?? 25) || 25));
   const offset = Math.max(0, Number(params.offset ?? 0) || 0);
 
   const filters: ProductFilters = {
@@ -69,11 +70,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
   const { rows, total } = listProducts(filters);
 
+  // Performance: taxonomy lists are cached for 5 minutes (rarely change)
   const [categories, cultures, collections, users] = [
-    all<{ id: string; name: string }>('SELECT id, name FROM category WHERE is_archived = 0 ORDER BY sort_order, name'),
-    all<{ id: string; name: string }>('SELECT id, name FROM handloom_culture WHERE is_archived = 0 ORDER BY sort_order, name'),
-    all<{ id: string; name: string }>('SELECT id, name FROM collection WHERE is_archived = 0 ORDER BY sort_order, name'),
-    all<{ id: string; name: string }>('SELECT id, name FROM "user" WHERE is_active = 1 ORDER BY name'),
+    all<{ id: string; name: string }>('SELECT id, name FROM category WHERE is_archived = 0 ORDER BY sort_order, name', [], { ttlMs: 300_000 }),
+    all<{ id: string; name: string }>('SELECT id, name FROM handloom_culture WHERE is_archived = 0 ORDER BY sort_order, name', [], { ttlMs: 300_000 }),
+    all<{ id: string; name: string }>('SELECT id, name FROM collection WHERE is_archived = 0 ORDER BY sort_order, name', [], { ttlMs: 300_000 }),
+    all<{ id: string; name: string }>('SELECT id, name FROM "user" WHERE is_active = 1 ORDER BY name', [], { ttlMs: 60_000 }),
   ];
 
   const activeFilters = Object.entries(params).filter(

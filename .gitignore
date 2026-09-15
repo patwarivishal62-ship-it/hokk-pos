@@ -17,8 +17,10 @@ coverage/
 *.db-wal
 *.db-journal
 /data/
-/storage/
+/storage/*
 !/storage/.gitkeep
+!/storage/README.md
+!/storage/drive-folders.json
 
 # misc
 .DS_Store

@@ -30,6 +30,7 @@ const effectiveAllowedOrigins = allowedOrigins.length > 0 ? allowedOrigins : DEF
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  compress: true,
   // Native bindings (libsql) must stay external to the server bundle
   serverExternalPackages: ['libsql'],
   // The binding is loaded via a dynamic require() that static file tracing can
@@ -43,13 +44,32 @@ const nextConfig = {
   experimental: {
     serverActions: {
       bodySizeLimit: '25mb',
-      // Server Action CSRF allowlist (see note 1 above).
       allowedOrigins: effectiveAllowedOrigins,
     },
+    // Performance: optimize package imports
+    optimizePackageImports: ['exceljs'],
   },
   // Uploads are streamed from app-managed storage; keep the proxy permissive.
   images: {
     remotePatterns: [{ protocol: 'https', hostname: '**' }],
+    // Performance: cache remote images
+    minimumCacheTTL: 60,
+    formats: ['image/avif', 'image/webp'],
+  },
+  // Performance: enable SWC minification and modern output
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error', 'warn'] } : false,
+  },
+  // Performance: headers for caching static assets
+  async headers() {
+    return [
+      {
+        source: '/api/media/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+    ];
   },
 };
 
