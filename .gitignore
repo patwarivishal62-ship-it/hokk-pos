@@ -1,0 +1,27 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+.turbo/
+
+# env + secrets
+.env
+.env.local
+.env*.local
+
+# app data (SQLite db + uploaded media + generated exports) — never commit
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+data/
+storage/
+!storage/.gitkeep
+
+# misc
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+.vercel
