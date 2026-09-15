@@ -165,11 +165,28 @@ Checked on a clean checkout, not assumed:
   column by column.
 - All 18 authenticated pages fetched over HTTP with a session cookie and returned 200; the
   12 product-detail tabs likewise. Tampered and absent cookies redirect to `/login`.
-- The login path itself is covered by `tests/session.test.ts`, which drives the real
-  `createSession` → `getSessionUser` → `authenticate` sequence, plus tampering, revocation,
+- The login path itself is covered by `tests/session.test.ts` (14 tests) and
+  `tests/auth-actions.test.ts` (12 tests), which drive the real `createSession` →
+  `getSessionUser` → `authenticate` → `loginAction` sequence, plus tampering, revocation,
   expiry and account deactivation.
+- The full login chain was exercised over real HTTP: the real `loginAction` writing a cookie
+  through Next's own cookie store, then that exact `Set-Cookie` authenticating
+  `/dashboard`, `/products`, `/audit` and `/settings`.
 
 Not verified: the **Google Drive** storage backend, for the credential reason given above.
+
+### Serving behind a proxy
+
+Every form in this app is a Server Action, and Next.js aborts a Server Action whose `Origin`
+header does not match `x-forwarded-host`/`host` with `Invalid Server Actions request.`
+(HTTP 500). Behind a reverse proxy or preview host those differ, which breaks **login** —
+not merely uploads. `next.config.mjs` therefore feeds `ALLOWED_ORIGINS` into both
+`serverActions.allowedOrigins` and `allowedDevOrigins`, defaulting to `*.e2b.app`. Set it to
+your real domain in production.
+
+This was verified rather than assumed: a request from an allowlisted origin reaches the
+action, while one from a non-allowlisted origin is still rejected with
+`Invalid Server Actions request.`, so the CSRF protection is intact.
 
 A note on how the suite is organised, because it matters when adding to it: `scripts/e2e.ts`
 drives the library layer directly and does **not** authenticate. Anything that only breaks
