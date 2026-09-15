@@ -314,6 +314,9 @@ async function main(): Promise<void> {
       run('DELETE FROM audit_log WHERE entity_id = ?', [product.id]);
       run('DELETE FROM product WHERE id = ?', [product.id]);
       run('DELETE FROM export_run_product WHERE export_id = ?', [result.exportId]);
+      // The export writes its own audit row keyed by the export run id, not the
+      // product id, so clearing only the product's rows leaves it behind.
+      run('DELETE FROM audit_log WHERE entity_id = ?', [result.exportId]);
       run('DELETE FROM export_run WHERE id = ?', [result.exportId]);
       run('DELETE FROM collection WHERE id = ?', [collectionId]);
       run('DELETE FROM category WHERE id = ?', [categoryId]);
