@@ -40,7 +40,7 @@ the team builds it.
 | `npm run dev` | Dev server on `0.0.0.0:3000` |
 | `npm run build` / `start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest — 12 files, 168 tests |
+| `npm test` | Vitest — 17 files, 244 tests |
 | `npm run db:init` | Idempotent schema apply |
 | `npm run bootstrap` | Seed system config + super admin |
 | `npm run e2e` | End-to-end pipeline smoke test against the real database |
@@ -152,3 +152,28 @@ patterns in sections 1–47 and are worth reviewing:
   available. The adapter is implemented against the documented Drive v3 REST API and is
   covered by unit tests with a stubbed transport, but it has not been exercised against a
   real Drive account.
+
+## What has actually been verified
+
+Checked on a clean checkout, not assumed:
+
+- `npx tsc --noEmit` — 0 errors.
+- `npx vitest run` — 17 files, 244 tests, all passing.
+- `npm run build` — clean production build, 26 routes.
+- `npm run e2e` — full pipeline against a real SQLite file: SKU generation, completeness,
+  readiness, image slots, workflow gating, and a Shopify CSV export read back and asserted
+  column by column.
+- All 18 authenticated pages fetched over HTTP with a session cookie and returned 200; the
+  12 product-detail tabs likewise. Tampered and absent cookies redirect to `/login`.
+- The login path itself is covered by `tests/session.test.ts`, which drives the real
+  `createSession` → `getSessionUser` → `authenticate` sequence, plus tampering, revocation,
+  expiry and account deactivation.
+
+Not verified: the **Google Drive** storage backend, for the credential reason given above.
+
+A note on how the suite is organised, because it matters when adding to it: `scripts/e2e.ts`
+drives the library layer directly and does **not** authenticate. Anything that only breaks
+behind a session cookie — the request/auth boundary, cookie handling, `next/headers` — is
+invisible to it, and `tsc` and `next build` cannot see it either. That combination let a
+broken login survive an otherwise green run. New request-boundary behaviour needs a test in
+the Vitest suite, not just an E2E assertion.
