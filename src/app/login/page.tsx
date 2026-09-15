@@ -21,7 +21,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <p className="text-xs text-ink-500">{getSetting('brand.tagline')}</p>
         </div>
 
-        <form className="card flex flex-col gap-3 p-5">
+        <div className="card flex flex-col gap-3 p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">Product Operations System</p>
           {reason === 'password-changed' && (
             <p className="rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
@@ -29,7 +29,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             </p>
           )}
           <LoginFields />
-        </form>
+        </div>
 
         <p className="mt-4 text-center text-2xs text-ink-400">Internal tool. Accounts are created by a Super Admin.</p>
       </div>

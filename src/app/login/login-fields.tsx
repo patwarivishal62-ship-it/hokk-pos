@@ -7,7 +7,7 @@ import { Field } from '@/components/ui';
 export function LoginFields() {
   const [state, formAction, pending] = useActionState(loginAction, null);
   return (
-    <>
+    <form action={formAction} className="flex flex-col gap-3">
       <Field label="Email">
         <input className="field" type="email" name="email" autoComplete="username" required autoFocus />
       </Field>
@@ -20,6 +20,6 @@ export function LoginFields() {
       <button className="btn btn-primary mt-1" type="submit" disabled={pending}>
         {pending ? 'Signing in…' : 'Sign in'}
       </button>
-    </>
+    </form>
   );
 }
