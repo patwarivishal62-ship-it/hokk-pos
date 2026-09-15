@@ -14,9 +14,10 @@ export async function ContentTab({ bundle }: { bundle: ProductBundle }) {
 
   return (
     <ActionForm
-      action={async (prev, formData) => updateProductAction(product.id, formData).then((result) => ({ ...prev, ...result }))}
+      action={updateProductAction}
       className="flex flex-col gap-4"
     >
+        <input type="hidden" name="product_id" value={product.id} />
       <Card title="Descriptions" action={<span className="text-2xs text-ink-400">Separate fields — assembled for Shopify on export</span>}>
         <div className="flex flex-col gap-3 px-4 py-3">
           <TextAreaField
@@ -74,9 +75,10 @@ export async function SeoTab({ bundle }: { bundle: ProductBundle }) {
   return (
     <div className="flex flex-col gap-4">
       <ActionForm
-        action={async (prev, formData) => updateProductAction(product.id, formData).then((result) => ({ ...prev, ...result }))}
+        action={updateProductAction}
         className="flex flex-col gap-4"
       >
+          <input type="hidden" name="product_id" value={product.id} />
         <Card title="SEO">
           <div className="flex flex-col gap-3 px-4 py-3">
             <TextField

@@ -300,9 +300,10 @@ export async function ProductDataTab({ bundle }: { bundle: ProductBundle }) {
 
   return (
     <ActionForm
-      action={async (prev, formData) => updateProductAction(product.id, formData).then((result) => ({ ...prev, ...result }))}
+      action={updateProductAction}
       className="flex flex-col gap-4"
     >
+        <input type="hidden" name="product_id" value={product.id} />
       <Card title="Basic information">
         <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
           <TextField
@@ -510,9 +511,10 @@ export async function HandloomTab({ bundle }: { bundle: ProductBundle }) {
       </div>
 
       <ActionForm
-        action={async (prev, formData) => updateProductAction(product.id, formData).then((result) => ({ ...prev, ...result }))}
+        action={updateProductAction}
         className="flex flex-col gap-4"
       >
+          <input type="hidden" name="product_id" value={product.id} />
         <Card title="Provenance">
           <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
             <TextField name="artisan_name" label="Artisan / weaver" value={product.artisan_name} hint="Only if verified." />
@@ -595,9 +597,10 @@ export async function MeasurementsTab({
   return (
     <div className="flex flex-col gap-4">
       <ActionForm
-        action={async (prev, formData) => updateProductAction(product.id, formData).then((result) => ({ ...prev, ...result }))}
+        action={updateProductAction}
         className="flex flex-col gap-4"
       >
+          <input type="hidden" name="product_id" value={product.id} />
         <Card title="Product measurements">
           <div className="flex flex-col gap-2 px-4 py-3">
             <p className="text-2xs text-ink-400">

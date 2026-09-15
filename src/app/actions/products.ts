@@ -114,9 +114,17 @@ export async function createProductAction(_prev: ActionResult | null, formData: 
   }
 }
 
-export async function updateProductAction(productId: string, formData: FormData): Promise<ActionResult> {
+/**
+ * Reads `product_id` from the form data rather than taking it as an argument, so
+ * the action can be handed straight to a client component. Next.js only allows
+ * functions marked `'use server'` to cross that boundary — an inline closure
+ * wrapper would throw at render time.
+ */
+export async function updateProductAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
     const user = await requirePermission('product.edit');
+    const productId = String(formData.get('product_id') ?? '');
+    if (!productId) return { ok: false, error: 'Missing product_id.' };
     const patch = readProductForm(formData);
     // Only Super Admin / product.sku.edit holders may change the identifier.
     if (patch.sku !== undefined && !hasPermission(user.permissions, 'product.sku.edit')) delete patch.sku;

@@ -18,8 +18,9 @@ export async function VariantsTab({ bundle, tags }: { bundle: ProductBundle; tag
   return (
     <div className="flex flex-col gap-4">
       <ActionForm
-        action={async (prev, formData) => updateProductAction(product.id, formData).then((result) => ({ ...prev, ...result }))}
+        action={updateProductAction}
       >
+          <input type="hidden" name="product_id" value={product.id} />
         <Card title="Product-level pricing & inventory" action={<span className="text-2xs text-ink-400">Used as the default for variants</span>}>
           <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
             <MoneyField name="price" label="Selling price" value={product.price} currency={currency} />
