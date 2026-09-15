@@ -216,7 +216,11 @@ export function runExport(options: ExportOptions, userId: string): ExportResult 
   const stamp = nowIso();
   const number = (get<{ n: number }>('SELECT COALESCE(MAX(number),0) + 1 AS n FROM export_run')?.n ?? 1);
   const fileName = `hokk-shopify-${options.mode.toLowerCase()}-${stamp.slice(0, 10)}-${String(number).padStart(4, '0')}.csv`;
-  const dir = path.resolve(process.cwd(), 'storage/exports');
+  const dir = (() => {
+    if (process.env.EXPORT_DIR) return path.resolve(process.env.EXPORT_DIR);
+    if (process.env.VERCEL) return '/tmp/storage/exports';
+    return path.resolve(process.cwd(), 'storage/exports');
+  })();
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, fileName);
   fs.writeFileSync(filePath, csv, 'utf8');
@@ -351,8 +355,13 @@ export function listExports(limit = 50) {
 }
 
 export function readExportFile(filePath: string): Buffer | null {
-  const resolved = path.resolve(process.cwd(), filePath);
-  if (!resolved.startsWith(path.resolve(process.cwd(), 'storage/exports'))) return null;
+  const resolved = path.resolve(filePath);
+  const allowedDirs = [
+    path.resolve(process.cwd(), 'storage/exports'),
+    '/tmp/storage/exports',
+    process.env.EXPORT_DIR ? path.resolve(process.env.EXPORT_DIR) : null,
+  ].filter(Boolean) as string[];
+  if (!allowedDirs.some((dir) => resolved.startsWith(dir))) return null;
   if (!fs.existsSync(resolved)) return null;
   return fs.readFileSync(resolved);
 }

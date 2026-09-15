@@ -1,0 +1,169 @@
+import 'server-only';
+import fs from 'node:fs';
+import path from 'node:path';
+import { LocalStorage } from './local';
+import { GoogleDriveStorage, DEFAULT_PUBLIC_URL_TEMPLATE, DriveNotConfiguredError } from './gdrive';
+import type { StorageBackend, PutInput, PutResult, ReadInput, RemoveInput, StorageStatus, DriveConfig } from './types';
+
+export { LocalStorage, GoogleDriveStorage, DriveNotConfiguredError, DEFAULT_PUBLIC_URL_TEMPLATE };
+export type { StorageBackend, PutInput, PutResult, ReadInput, RemoveInput, StorageStatus, DriveConfig };
+
+function readSetting(key: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getSetting } = require('@/lib/settings') as typeof import('@/lib/settings');
+    const val = getSetting(key);
+    return typeof val === 'string' ? val : '';
+  } catch {
+    return '';
+  }
+}
+
+export function buildDriveConfig(): DriveConfig {
+  // Service account JSON: raw JSON, base64, or file path
+  let serviceAccountJson: string | undefined;
+  const rawJson = process.env.GDRIVE_SERVICE_ACCOUNT_JSON?.trim();
+  const filePathEnv = process.env.GDRIVE_SERVICE_ACCOUNT_FILE?.trim();
+
+  if (rawJson) {
+    if (rawJson.startsWith('{')) {
+      serviceAccountJson = rawJson;
+    } else {
+      // Try base64 decode
+      try {
+        const decoded = Buffer.from(rawJson, 'base64').toString('utf8').trim();
+        if (decoded.startsWith('{')) serviceAccountJson = decoded;
+        else serviceAccountJson = rawJson;
+      } catch {
+        serviceAccountJson = rawJson;
+      }
+    }
+  } else if (filePathEnv) {
+    try {
+      const resolved = path.isAbsolute(filePathEnv) ? filePathEnv : path.resolve(process.cwd(), filePathEnv);
+      if (fs.existsSync(resolved)) {
+        const content = fs.readFileSync(resolved, 'utf8').trim();
+        if (content.startsWith('{')) serviceAccountJson = content;
+        else {
+          try {
+            const decoded = Buffer.from(content, 'base64').toString('utf8').trim();
+            if (decoded.startsWith('{')) serviceAccountJson = decoded;
+            else serviceAccountJson = content;
+          } catch {
+            serviceAccountJson = content;
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Also allow direct file content via _FILE pointing to a JSON file that may be base64
+  // The above already handles GDRIVE_SERVICE_ACCOUNT_FILE
+
+  const config: DriveConfig = {
+    serviceAccountJson,
+    serviceAccountFile: filePathEnv,
+    clientId: process.env.GDRIVE_CLIENT_ID?.trim() || undefined,
+    clientSecret: process.env.GDRIVE_CLIENT_SECRET?.trim() || undefined,
+    refreshToken: process.env.GDRIVE_REFRESH_TOKEN?.trim() || undefined,
+    parentFolderId:
+      process.env.GDRIVE_PARENT_FOLDER_ID?.trim() || readSetting('drive.parent_folder_id') || undefined,
+    originalFolderId:
+      process.env.GDRIVE_ORIGINAL_FOLDER_ID?.trim() ||
+      readSetting('drive.original_folder_id') ||
+      undefined,
+    finalFolderId:
+      process.env.GDRIVE_FINAL_FOLDER_ID?.trim() || readSetting('drive.final_folder_id') || undefined,
+    publicUrlTemplate:
+      process.env.GDRIVE_PUBLIC_URL_TEMPLATE?.trim() ||
+      readSetting('drive.public_url_template') ||
+      undefined,
+    apiBase: process.env.GDRIVE_API_BASE?.trim() || undefined,
+    oauthBase: process.env.GDRIVE_OAUTH_BASE?.trim() || undefined,
+  };
+
+  // Trim empty strings to undefined
+  for (const k of Object.keys(config) as Array<keyof DriveConfig>) {
+    const v = config[k];
+    if (typeof v === 'string' && v.trim() === '') config[k] = undefined as never;
+  }
+
+  return config;
+}
+
+export function buildLocalConfig(): { uploadDir: string } {
+  const dir =
+    process.env.UPLOAD_DIR?.trim() ||
+    readSetting('storage.upload_dir') ||
+    (process.env.VERCEL ? '/tmp/storage/uploads' : 'storage/uploads');
+  return { uploadDir: dir };
+}
+
+// Simple factory with caching per backend — but respect env changes in tests
+let cached: { backend: StorageBackend; instance: LocalStorage | GoogleDriveStorage } | null = null;
+
+export function getStorage(): LocalStorage | GoogleDriveStorage {
+  let backend: StorageBackend = 'LOCAL';
+  const envBackend = process.env.STORAGE_BACKEND?.trim().toUpperCase();
+  if (envBackend === 'GDRIVE' || envBackend === 'LOCAL') {
+    backend = envBackend as StorageBackend;
+  } else {
+    const settingBackend = readSetting('storage.backend').toUpperCase();
+    if (settingBackend === 'GDRIVE' || settingBackend === 'LOCAL') backend = settingBackend as StorageBackend;
+  }
+
+  // In tests, env may change between calls — invalidate cache if backend differs
+  if (cached && cached.backend === backend) return cached.instance;
+
+  let instance: LocalStorage | GoogleDriveStorage;
+  if (backend === 'GDRIVE') {
+    const cfg = buildDriveConfig();
+    instance = new GoogleDriveStorage(cfg);
+    // Ensure the instance reports correct backend even if config is empty
+    (instance as unknown as { backend: StorageBackend }).backend = 'GDRIVE';
+  } else {
+    const cfg = buildLocalConfig();
+    instance = new LocalStorage(cfg);
+    (instance as unknown as { backend: StorageBackend }).backend = 'LOCAL';
+  }
+  cached = { backend, instance };
+  return instance;
+}
+
+/**
+ * Resolves the publicly reachable URL for an image.
+ *
+ * - If the row already has a publicUrl, return it (GDRIVE files are already shared).
+ * - For GDRIVE, synthesize from the template + driveFileId.
+ * - For LOCAL, build from PUBLIC_BASE_URL + /api/media/<key> if a base is configured.
+ * - Otherwise return empty string — the caller will treat it as "not publicly accessible".
+ */
+export function resolvePublicUrl(opts: {
+  storageBackend: string;
+  storageKey: string;
+  driveFileId: string | null;
+  publicUrl?: string | null;
+}): string {
+  if (opts.publicUrl && opts.publicUrl.trim() !== '') return opts.publicUrl;
+  if (opts.storageBackend === 'GDRIVE' && opts.driveFileId) {
+    const template = readSetting('drive.public_url_template') || process.env.GDRIVE_PUBLIC_URL_TEMPLATE || DEFAULT_PUBLIC_URL_TEMPLATE;
+    return template.replace('{fileId}', opts.driveFileId);
+  }
+  if (opts.storageBackend === 'LOCAL') {
+    const base = readSetting('storage.public_base_url') || process.env.PUBLIC_BASE_URL || '';
+    const trimmed = base.replace(/\/$/, '');
+    if (!trimmed) return '';
+    const encoded = opts.storageKey.split('/').map(encodeURIComponent).join('/');
+    return `${trimmed}/api/media/${encoded}`;
+  }
+  return opts.publicUrl || '';
+}
+
+// For testing: allow clearing cache
+export const _internal = {
+  clearCache() {
+    cached = null;
+  },
+};

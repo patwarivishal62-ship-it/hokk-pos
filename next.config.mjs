@@ -30,6 +30,8 @@ const effectiveAllowedOrigins = allowedOrigins.length > 0 ? allowedOrigins : DEF
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Native bindings (libsql) must stay external to the server bundle
+  serverExternalPackages: ['libsql'],
   // Dev-time cross-origin asset requests (see note 2 above).
   allowedDevOrigins: effectiveAllowedOrigins,
   experimental: {
