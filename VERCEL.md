@@ -230,6 +230,24 @@ base64-encoded in Vercel if the raw JSON contains newlines.
 
 Deploy, then `POST /api/admin/init` or visit `/setup`.
 
+## Troubleshooting
+
+### Deployed site shows "Database is not connected" / "SESSION_SECRET is missing"
+
+That is the deployment pre-flight screen (`src/lib/boot-check.ts`, rendered by
+the root layout instead of Next's cryptic "Application error" digest). It means
+exactly what it says — follow the numbered steps on the page (create the Turso
+database, set the Vercel Environment Variables below), then `Redeploy` and open
+`/setup`. `POST /api/admin/init` returns the same failure as JSON (`503`) for
+programmatic checks.
+
+### Deployed site shows "Application error: a server-side exception has occurred"
+
+On current code this no longer happens for configuration problems (they show the
+screen above). If you still see a digest, open that deployment's Runtime Logs in
+Vercel — the digest line names the failing route — and re-check the Environment
+Variables checklist below.
+
 ## Local verification commands (must all pass)
 
 ```bash
