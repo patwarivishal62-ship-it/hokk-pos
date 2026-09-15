@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HOKK POS</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🧾</text></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ======================= SIDEBAR ======================= -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">H</div>
+        <div class="brand-text">
+          <div class="brand-name">HOKK&nbsp;POS</div>
+          <div class="brand-sub">Register&nbsp;01</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-btn active" data-view="register"><span class="nav-ico">🛒</span> Register</button>
+        <button class="nav-btn" data-view="dashboard"><span class="nav-ico">📊</span> Dashboard</button>
+        <button class="nav-btn" data-view="inventory"><span class="nav-ico">📦</span> Inventory</button>
+        <button class="nav-btn" data-view="sales"><span class="nav-ico">🧾</span> Sales</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="store-name" id="storeName">HOKK Store &amp; Café</div>
+        <div class="clock" id="clock">--:--</div>
+        <div class="conn" id="connBadge"><span class="conn-dot"></span> Online</div>
+      </div>
+    </aside>
+
+    <!-- ======================= MAIN ======================= -->
+    <main class="main">
+
+      <!-- ---------------- REGISTER ---------------- -->
+      <section id="view-register" class="view">
+        <div class="register-layout">
+          <div class="catalog">
+            <div class="catalog-toolbar">
+              <input id="productSearch" class="input search" type="search" placeholder="Search products or SKU…" autocomplete="off" />
+            </div>
+            <div id="categoryChips" class="chips"></div>
+            <div id="productGrid" class="product-grid"></div>
+          </div>
+
+          <div class="cart-panel">
+            <div class="cart-header">
+              <h2>Current Order</h2>
+              <button id="clearCartBtn" class="btn btn-ghost btn-sm">Clear</button>
+            </div>
+            <div id="cartItems" class="cart-items"></div>
+            <div class="cart-summary">
+              <div class="discount-row">
+                <label for="discountInput">Discount %</label>
+                <input id="discountInput" class="input input-sm" type="number" min="0" max="100" step="0.5" value="0" />
+              </div>
+              <div class="sum-row"><span>Subtotal</span><span id="sumSubtotal">$0.00</span></div>
+              <div class="sum-row"><span>Discount</span><span id="sumDiscount" class="neg">−$0.00</span></div>
+              <div class="sum-row"><span>Tax (<span id="taxRateLabel">0</span>%)</span><span id="sumTax">$0.00</span></div>
+              <div class="sum-row total"><span>Total</span><span id="sumTotal">$0.00</span></div>
+            </div>
+            <button id="chargeBtn" class="btn btn-primary btn-xl" disabled>Charge $0.00</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------- DASHBOARD ---------------- -->
+      <section id="view-dashboard" class="view hidden">
+        <header class="view-header">
+          <h1>Dashboard</h1>
+          <span class="muted" id="dashDate"></span>
+        </header>
+
+        <div class="stat-cards">
+          <div class="stat-card"><div class="stat-label">Today's Revenue</div><div class="stat-value money" id="statRevenue">$0.00</div><div class="stat-sub" id="statRevenueSub"></div></div>
+          <div class="stat-card"><div class="stat-label">Transactions</div><div class="stat-value" id="statTx">0</div><div class="stat-sub" id="statTxSub"></div></div>
+          <div class="stat-card"><div class="stat-label">Avg Order Value</div><div class="stat-value money" id="statAov">$0.00</div><div class="stat-sub">today</div></div>
+          <div class="stat-card"><div class="stat-label">Items Sold</div><div class="stat-value" id="statItems">0</div><div class="stat-sub">today</div></div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card">
+            <h3>Revenue — last 7 days</h3>
+            <div id="revenueChart" class="bar-chart"></div>
+          </div>
+          <div class="card">
+            <h3>Top products <span class="muted small">(30 days)</span></h3>
+            <div id="topProducts" class="list"></div>
+          </div>
+          <div class="card">
+            <h3>Sales by category <span class="muted small">(7 days)</span></h3>
+            <div id="categoryBreakdown" class="list"></div>
+          </div>
+          <div class="card">
+            <h3>Inventory health</h3>
+            <div id="inventoryHealth" class="list"></div>
+            <h3 class="mt">Low stock alerts</h3>
+            <div id="lowStockList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------- INVENTORY ---------------- -->
+      <section id="view-inventory" class="view hidden">
+        <header class="view-header">
+          <h1>Inventory</h1>
+          <div class="toolbar">
+            <input id="invSearch" class="input" type="search" placeholder="Search…" />
+            <select id="invCategoryFilter" class="input"></select>
+            <button id="addProductBtn" class="btn btn-primary">＋ Add product</button>
+          </div>
+        </header>
+        <div class="card table-card">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Product</th><th>SKU</th><th>Category</th>
+                <th class="num">Price</th><th class="num">Cost</th><th class="num">Margin</th>
+                <th class="num">Stock</th><th>Status</th><th class="num">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ---------------- SALES ---------------- -->
+      <section id="view-sales" class="view hidden">
+        <header class="view-header">
+          <h1>Sales History</h1>
+          <div class="toolbar">
+            <span class="muted" id="salesSummary"></span>
+            <button id="refreshSalesBtn" class="btn btn-ghost">↻ Refresh</button>
+          </div>
+        </header>
+        <div class="card table-card">
+          <table class="table">
+            <thead>
+              <tr><th>Receipt</th><th>Time</th><th class="num">Items</th><th>Payment</th><th class="num">Total</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody id="salesBody"></tbody>
+          </table>
+          <div id="salesEmpty" class="empty hidden">No sales recorded yet — ring up your first order in the Register! 🛒</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ======================= PAYMENT MODAL ======================= -->
+  <div id="paymentModal" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Take Payment</h2>
+        <button class="modal-close" data-close="paymentModal">✕</button>
+      </div>
+      <div class="pay-due">Amount due<div class="pay-due-amount" id="payDueAmount">$0.00</div></div>
+
+      <div class="pay-methods">
+        <button id="payMethodCash" class="pay-method active">💵 Cash</button>
+        <button id="payMethodCard" class="pay-method">💳 Card</button>
+      </div>
+
+      <div id="cashSection">
+        <div class="quick-cash" id="quickCash"></div>
+        <input id="cashTendered" class="input input-lg" type="number" min="0" step="0.01" placeholder="Cash received" />
+        <div class="change-row">Change due <span id="changeDue" class="change-amount">$0.00</span></div>
+      </div>
+      <div id="cardSection" class="hidden">
+        <div class="card-terminal">💳 Present, insert or swipe card on terminal…</div>
+      </div>
+
+      <button id="confirmPaymentBtn" class="btn btn-primary btn-xl" disabled>Complete Sale</button>
+    </div>
+  </div>
+
+  <!-- ======================= RECEIPT MODAL ======================= -->
+  <div id="receiptModal" class="modal-backdrop hidden">
+    <div class="modal receipt-modal">
+      <div id="receiptPaper" class="receipt"></div>
+      <div class="modal-actions">
+        <button id="printReceiptBtn" class="btn btn-ghost">🖨 Print</button>
+        <button id="newSaleBtn" class="btn btn-primary">New Sale →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= PRODUCT MODAL ======================= -->
+  <div id="productModal" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="productModalTitle">Add product</h2>
+        <button class="modal-close" data-close="productModal">✕</button>
+      </div>
+      <form id="productForm" class="form-grid">
+        <input type="hidden" id="pfId" />
+        <label>Name <input id="pfName" class="input" required maxlength="60" /></label>
+        <label>Emoji <input id="pfEmoji" class="input" maxlength="8" placeholder="🛒" /></label>
+        <label>Category <input id="pfCategory" class="input" list="categoryList" required maxlength="30" />
+          <datalist id="categoryList"></datalist>
+        </label>
+        <label>SKU <input id="pfSku" class="input" maxlength="20" placeholder="auto" /></label>
+        <label>Price ($) <input id="pfPrice" class="input" type="number" min="0" step="0.01" required /></label>
+        <label>Cost ($) <input id="pfCost" class="input" type="number" min="0" step="0.01" value="0" /></label>
+        <label>Stock <input id="pfStock" class="input" type="number" min="0" step="1" required value="0" /></label>
+        <label>Low-stock alert at <input id="pfThreshold" class="input" type="number" min="0" step="1" value="10" /></label>
+        <div class="modal-actions form-span">
+          <button type="button" class="btn btn-ghost" data-close="productModal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save product</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toastHost" class="toast-host"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

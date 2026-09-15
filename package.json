@@ -1,0 +1,22 @@
+{
+  "name": "hokk-pos",
+  "version": "1.0.0",
+  "description": "HOKK POS — a full-featured point of sale system (register, inventory, sales history, analytics) with zero runtime dependencies.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "demo": "node scripts/demo.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "keywords": [
+    "pos",
+    "point-of-sale",
+    "register",
+    "inventory",
+    "retail"
+  ]
+}
