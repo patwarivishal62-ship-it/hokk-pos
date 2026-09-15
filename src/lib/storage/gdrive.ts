@@ -314,6 +314,62 @@ export class GoogleDriveStorage {
     return { originalFolderId: originalId, finalFolderId: finalId, rootFolderId: rootId };
   }
 
+  /**
+   * Extended structure for HOKK POS — creates the full recommended tree:
+   *   <parent>/House of Kala Katha/
+   *     - Original (required)
+   *     - Final (required)
+   *     - Exports (optional, for Shopify CSV/Excel history)
+   *     - Imports (optional, for bulk import sheets)
+   *     - Archive (optional, for deprecated assets)
+   *     - Temp (optional, for staging)
+   *
+   * Keeps backward compatibility with ensureFolders().
+   */
+  async ensureFullStructure(): Promise<{
+    rootFolderId: string;
+    originalFolderId: string;
+    finalFolderId: string;
+    exportsFolderId: string;
+    importsFolderId: string;
+    archiveFolderId: string;
+    tempFolderId: string;
+  }> {
+    if (!this.isConfigured()) {
+      throw new DriveNotConfiguredError('Google Drive is not configured');
+    }
+    const parentId = this.config.parentFolderId || null;
+    const rootId = await this.findOrCreateFolder('House of Kala Katha', parentId);
+    this.cachedRootId = rootId;
+
+    const [originalId, finalId, exportsId, importsId, archiveId, tempId] = await Promise.all([
+      this.findOrCreateFolder('Original', rootId),
+      this.findOrCreateFolder('Final', rootId),
+      this.findOrCreateFolder('Exports', rootId),
+      this.findOrCreateFolder('Imports', rootId),
+      this.findOrCreateFolder('Archive', rootId),
+      this.findOrCreateFolder('Temp', rootId),
+    ]);
+
+    this.cachedOriginalId = originalId;
+    this.cachedFinalId = finalId;
+
+    return {
+      rootFolderId: rootId,
+      originalFolderId: originalId,
+      finalFolderId: finalId,
+      exportsFolderId: exportsId,
+      importsFolderId: importsId,
+      archiveFolderId: archiveId,
+      tempFolderId: tempId,
+    };
+  }
+
+  // Exposed for scripts that need arbitrary folders under root
+  async ensureSubFolder(name: string, parentId: string): Promise<string> {
+    return this.findOrCreateFolder(name, parentId);
+  }
+
   async put(opts: {
     data: Buffer;
     fileName: string;

@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "db:init": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/db-init.ts",
     "bootstrap": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/bootstrap.ts",
-    "e2e": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/e2e.ts"
+    "e2e": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/e2e.ts",
+    "drive:setup": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/setup-drive-structure.ts",
+    "drive:verify": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/verify-gdrive.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
