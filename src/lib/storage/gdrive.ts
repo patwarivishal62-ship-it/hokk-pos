@@ -298,14 +298,24 @@ export class GoogleDriveStorage {
     if (!this.isConfigured()) {
       throw new DriveNotConfiguredError('Google Drive is not configured');
     }
-    // If we already have them cached and they were provided via config, return quickly
-    // But we still need to ensure they exist if not cached
+    // Fast path: if we already have cached IDs from env/settings, return immediately (performance)
+    if (this.cachedOriginalId && this.cachedFinalId && this.cachedRootId) {
+      return { originalFolderId: this.cachedOriginalId, finalFolderId: this.cachedFinalId, rootFolderId: this.cachedRootId };
+    }
+    // If original/final IDs were provided via config, trust them and skip network calls
+    if (this.config.originalFolderId && this.config.finalFolderId) {
+      this.cachedOriginalId = this.config.originalFolderId;
+      this.cachedFinalId = this.config.finalFolderId;
+      // Try to get rootId from cache or parent, but don't block on network
+      const rootId = this.cachedRootId || this.config.parentFolderId || 'cached-root';
+      this.cachedRootId = rootId;
+      return { originalFolderId: this.cachedOriginalId, finalFolderId: this.cachedFinalId, rootFolderId: rootId };
+    }
+
     const parentId = this.config.parentFolderId || null;
     const rootId = await this.findOrCreateFolder('House of Kala Katha', parentId);
     this.cachedRootId = rootId;
 
-    // If caller pre-configured IDs but we haven't verified, we still need to ensure
-    // But for test compatibility, we create/find Original/Final under root regardless
     const originalId = await this.findOrCreateFolder('Original', rootId);
     const finalId = await this.findOrCreateFolder('Final', rootId);
     this.cachedOriginalId = originalId;
@@ -387,8 +397,19 @@ export class GoogleDriveStorage {
     mimeType: string;
     bytes: number;
   }> {
-    const { originalFolderId, finalFolderId } = await this.ensureFolders();
-    const targetFolderId = opts.folder === 'ORIGINAL' ? originalFolderId : finalFolderId;
+    // Fast path: use cached IDs if available to avoid 3 Drive API calls per upload (major perf fix)
+    let targetFolderId: string;
+    if (this.cachedOriginalId && this.cachedFinalId) {
+      targetFolderId = opts.folder === 'ORIGINAL' ? this.cachedOriginalId : this.cachedFinalId;
+    } else if (this.config.originalFolderId && this.config.finalFolderId) {
+      targetFolderId = opts.folder === 'ORIGINAL' ? this.config.originalFolderId : this.config.finalFolderId;
+      // Populate cache for next time
+      this.cachedOriginalId = this.config.originalFolderId;
+      this.cachedFinalId = this.config.finalFolderId;
+    } else {
+      const { originalFolderId, finalFolderId } = await this.ensureFolders();
+      targetFolderId = opts.folder === 'ORIGINAL' ? originalFolderId : finalFolderId;
+    }
     const headers = await this.authHeader();
 
     const metadata = {

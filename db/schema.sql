@@ -362,7 +362,17 @@ CREATE INDEX IF NOT EXISTS idx_product_name_status ON product(name_status);
 CREATE INDEX IF NOT EXISTS idx_product_archived   ON product(is_archived);
 CREATE INDEX IF NOT EXISTS idx_product_readiness  ON product(readiness_state);
 CREATE INDEX IF NOT EXISTS idx_product_updated    ON product(updated_at);
+CREATE INDEX IF NOT EXISTS idx_product_created    ON product(created_at);
 CREATE INDEX IF NOT EXISTS idx_product_sku        ON product(sku);
+-- Performance indexes for dashboard and catalog filters
+CREATE INDEX IF NOT EXISTS idx_product_completeness ON product(completeness_score);
+CREATE INDEX IF NOT EXISTS idx_product_photography ON product(photography_required, photography_complete);
+CREATE INDEX IF NOT EXISTS idx_product_price ON product(price);
+CREATE INDEX IF NOT EXISTS idx_product_colour ON product(colour);
+CREATE INDEX IF NOT EXISTS idx_product_fabric ON product(fabric);
+CREATE INDEX IF NOT EXISTS idx_product_composite ON product(is_archived, status, readiness_state);
+CREATE INDEX IF NOT EXISTS idx_product_archived_status ON product(is_archived, status);
+CREATE INDEX IF NOT EXISTS idx_product_archived_readiness ON product(is_archived, readiness_state);
 
 CREATE TABLE IF NOT EXISTS product_collection (
   id            TEXT PRIMARY KEY,
@@ -374,6 +384,8 @@ CREATE TABLE IF NOT EXISTS product_collection (
   UNIQUE (product_id, collection_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pc_collection ON product_collection(collection_id);
+CREATE INDEX IF NOT EXISTS idx_pc_product ON product_collection(product_id);
+CREATE INDEX IF NOT EXISTS idx_pc_product_collection ON product_collection(product_id, collection_id);
 
 CREATE TABLE IF NOT EXISTS variant (
   id            TEXT PRIMARY KEY,

@@ -55,16 +55,32 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
 
 export type Settings = Record<string, string>;
 
+// Cache settings for 60 seconds — they rarely change and are read on every request
+let settingsCache: { data: Settings; expiresAt: number } | null = null;
+const SETTINGS_TTL = 60_000;
+
+function loadAllSettings(): Settings {
+  if (settingsCache && Date.now() < settingsCache.expiresAt) {
+    return settingsCache.data;
+  }
+  const rows = all<{ key: string; value: string }>('SELECT key, value FROM setting', [], { ttlMs: SETTINGS_TTL });
+  const out: Settings = { ...DEFAULT_SETTINGS };
+  for (const row of rows) out[row.key] = row.value;
+  settingsCache = { data: out, expiresAt: Date.now() + SETTINGS_TTL };
+  return out;
+}
+
 export function getSetting(key: string): string {
-  const row = get<{ value: string }>('SELECT value FROM setting WHERE key = ?', [key]);
+  const allSettings = loadAllSettings();
+  if (key in allSettings) return allSettings[key] ?? DEFAULT_SETTINGS[key] ?? '';
+  // Fallback to direct query if not in cache (e.g., during bootstrap)
+  const row = get<{ value: string }>('SELECT value FROM setting WHERE key = ?', [key], { ttlMs: 30_000 });
   if (row) return row.value;
   return DEFAULT_SETTINGS[key] ?? '';
 }
 
 export function getSettings(keys?: string[]): Settings {
-  const rows = all<{ key: string; value: string }>('SELECT key, value FROM setting');
-  const out: Settings = { ...DEFAULT_SETTINGS };
-  for (const row of rows) out[row.key] = row.value;
+  const out = loadAllSettings();
   if (keys) {
     const picked: Settings = {};
     for (const key of keys) picked[key] = out[key] ?? '';
@@ -80,10 +96,17 @@ export function setSetting(key: string, value: string): void {
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     [key, value, stamp],
   );
+  // Invalidate cache on write
+  settingsCache = null;
 }
 
 export function setSettings(values: Record<string, string>): void {
   for (const [key, value] of Object.entries(values)) setSetting(key, value);
+  settingsCache = null;
+}
+
+export function clearSettingsCache(): void {
+  settingsCache = null;
 }
 
 export function getNumber(key: string, fallback = 0): number {
