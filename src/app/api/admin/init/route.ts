@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { ensureSchema, isInitialized, seedSystemDefaults } from '@/lib/bootstrap';
+import { checkBoot } from '@/lib/boot-check';
 import { all } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,15 @@ export const dynamic = 'force-dynamic';
  * caller can bootstrap without a secret, but afterwards it is locked).
  */
 export async function POST(request: NextRequest) {
+  // Fail as JSON (not a 500 HTML page) when the deployment is misconfigured.
+  const boot = checkBoot();
+  if (!boot.ok) {
+    return Response.json(
+      { ok: false, error: boot.title, hint: boot.intro, steps: boot.steps, detail: boot.detail ?? null },
+      { status: 503 },
+    );
+  }
+
   const secret = process.env.ADMIN_INIT_SECRET?.trim();
 
   if (secret) {
@@ -34,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
   } else {
     // No secret configured — only allow while uninitialized to prevent abuse
-    if (isInitialized()) {
+    if (boot.initialized) {
       return new Response(JSON.stringify({ ok: false, error: 'Already initialized — set ADMIN_INIT_SECRET to re-seed.' }), {
         status: 403,
         headers: { 'content-type': 'application/json' },
