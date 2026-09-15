@@ -93,19 +93,41 @@ export function scalar<T = number>(sql: string, params: unknown[] = []): T | und
   return values[0] as T;
 }
 
+/** Nesting depth. SQLite rejects a second BEGIN, so nested calls use savepoints. */
+let transactionDepth = 0;
+
+/**
+ * Runs `fn` atomically.
+ *
+ * Re-entrant: several of these compose (for example `applyImport` wraps each row
+ * and `createProduct` wraps its own writes), so a nested call joins the outer
+ * transaction through a SAVEPOINT instead of issuing a second BEGIN. Rolling the
+ * savepoint back undoes only the inner work, which is what callers expect when
+ * they catch and continue.
+ */
 export function transaction<T>(fn: () => T): T {
   const handle = getDb();
-  handle.exec('BEGIN');
+  const depth = transactionDepth;
+  const savepoint = `sp_${depth}`;
+
+  if (depth === 0) handle.exec('BEGIN');
+  else handle.exec(`SAVEPOINT ${savepoint}`);
+  transactionDepth = depth + 1;
+
   try {
     const result = fn();
-    handle.exec('COMMIT');
+    if (depth === 0) handle.exec('COMMIT');
+    else handle.exec(`RELEASE ${savepoint}`);
+    transactionDepth = depth;
     return result;
   } catch (error) {
     try {
-      handle.exec('ROLLBACK');
+      if (depth === 0) handle.exec('ROLLBACK');
+      else handle.exec(`ROLLBACK TO ${savepoint}`);
     } catch {
       /* ignore rollback failure */
     }
+    transactionDepth = depth;
     throw error;
   }
 }

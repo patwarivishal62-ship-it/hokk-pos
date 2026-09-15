@@ -192,7 +192,7 @@ export function buildPreview(
     let categoryId: string | null = null;
     if (categoryName) {
       const category = get<{ id: string }>(
-        'SELECT id FROM category WHERE lower(name) = lower(?) OR lower(handle) = lower(?)',
+        'SELECT id FROM category WHERE lower(name) = lower(?) OR lower(slug) = lower(?)',
         [categoryName, slugify(categoryName)],
       );
       if (category) categoryId = category.id;
