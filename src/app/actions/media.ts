@@ -67,7 +67,14 @@ export async function uploadImagesAction(_prev: ActionResult | null, formData: F
       ).map((row) => [row.checksum as string, row.file_name]),
     );
 
-    let index = 0;
+    // Start after whatever already occupies this slot, so a second upload
+    // request cannot generate a filename that overwrites an existing one.
+    let index = slot
+      ? get<{ n: number }>('SELECT COUNT(*) AS n FROM product_image WHERE product_id = ? AND slot_id = ?', [
+          productId,
+          slotId,
+        ])?.n ?? 0
+      : 0;
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const detectedType = file.type || 'application/octet-stream';
@@ -291,13 +298,29 @@ export async function reviewImageAction(_prev: ActionResult | null, formData: Fo
   }
 }
 
+/**
+ * Deleting the primary image would otherwise leave a product with no hero at
+ * all, which silently blocks Shopify export. Hand the flag to the first
+ * remaining image so there is always exactly one primary while images exist.
+ */
+function reassignPrimary(productId: string, deletedWasPrimary: boolean): void {
+  if (!deletedWasPrimary) return;
+  const next = get<{ id: string }>(
+    'SELECT id FROM product_image WHERE product_id = ? ORDER BY sort_order, created_at LIMIT 1',
+    [productId],
+  );
+  if (!next) return;
+  run('UPDATE product_image SET is_primary = 0 WHERE product_id = ?', [productId]);
+  run('UPDATE product_image SET is_primary = 1 WHERE id = ?', [next.id]);
+}
+
 export async function deleteImageAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
     const user = await requirePermission('image.delete');
     const productId = String(formData.get('product_id') ?? '');
     const imageId = String(formData.get('image_id') ?? '');
-    const image = get<{ file_name: string; storage_key: string; drive_file_id: string | null }>(
-      'SELECT file_name, storage_key, drive_file_id FROM product_image WHERE id = ?',
+    const image = get<{ file_name: string; storage_key: string; drive_file_id: string | null; is_primary: number }>(
+      'SELECT file_name, storage_key, drive_file_id, is_primary FROM product_image WHERE id = ?',
       [imageId],
     );
     if (!image) return fail('Image not found.');
@@ -308,12 +331,14 @@ export async function deleteImageAction(_prev: ActionResult | null, formData: Fo
       } catch (error) {
         // Keep the record removal even if remote deletion fails, but surface it.
         run('DELETE FROM product_image WHERE id = ?', [imageId]);
+        reassignPrimary(productId, image.is_primary === 1);
         recomputeProduct(productId, user.id);
         revalidatePath(`/products/${productId}`);
         return { ok: true, message: `Record removed, but the stored file could not be deleted: ${(error as Error).message}` };
       }
     }
     run('DELETE FROM product_image WHERE id = ?', [imageId]);
+    reassignPrimary(productId, image.is_primary === 1);
     logAudit({
       entityType: 'PRODUCT',
       entityId: productId,

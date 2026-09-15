@@ -72,7 +72,9 @@ export async function buildOperationsWorkbook(productIds?: string[]): Promise<Bu
       variant.compare_at_price ?? '',
       variant.cost_price ?? '',
       variant.inventory_qty ?? '',
-      `${variant.weight ?? ''} ${variant.weight_unit ?? ''}`.trim(),
+      variant.weight === null || variant.weight === undefined
+        ? ''
+        : `${variant.weight} ${variant.weight_unit ?? ''}`.trim(),
       variant.barcode ?? '',
     ]),
   });

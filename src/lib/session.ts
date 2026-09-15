@@ -14,6 +14,34 @@ import type { UserRow } from '@/lib/types';
 export const SESSION_COOKIE = 'hokk_session';
 export const SESSION_TTL_DAYS = 14;
 
+/**
+ * Cookie format: `<sessionId>.<randomToken>.<hmac(sessionId + "." + token)>`.
+ *
+ * The third segment is a signature over the first two, so a tampered cookie is
+ * detectable without a database round-trip. The token itself stays a random
+ * opaque value — it must never be derivable from the session id, otherwise
+ * revoking a session row would be the only thing standing between an attacker
+ * and an account.
+ */
+export function serializeSessionCookie(sessionId: string, token: string): string {
+  return `${sessionId}.${token}.${sign(`${sessionId}.${token}`)}`;
+}
+
+export interface ParsedSessionCookie {
+  sessionId: string;
+  token: string;
+  signatureValid: boolean;
+}
+
+/** Parses a cookie without touching the database; `signatureValid` is false for tampering. */
+export function parseSessionCookie(raw: string): ParsedSessionCookie | null {
+  const parts = raw.split('.');
+  if (parts.length !== 3) return null;
+  const [sessionId, token, signature] = parts;
+  if (!sessionId || !token || !signature) return null;
+  return { sessionId, token, signatureValid: safeEqual(signature, sign(`${sessionId}.${token}`)) };
+}
+
 function secret(): string {
   const value = process.env.SESSION_SECRET;
   if (!value || value.length < 16) {
@@ -79,7 +107,7 @@ export async function createSession(userId: string, meta?: { userAgent?: string;
     [id, userId, token, meta?.userAgent ?? null, meta?.ipAddress ?? null, expires, stamp],
   );
   const store = await cookies();
-  store.set(SESSION_COOKIE, `${id}.${token}`, {
+  store.set(SESSION_COOKIE, serializeSessionCookie(id, token), {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
@@ -99,15 +127,31 @@ export async function destroySession() {
   store.delete(SESSION_COOKIE);
 }
 
+/**
+ * Next.js only allows cookie writes inside a Server Action or Route Handler.
+ * `getSessionUser` also runs during Server Component render (every protected
+ * page), where a delete throws and would turn a stale cookie into a 500 on
+ * every page instead of a redirect to /login. Treat the clear as best-effort.
+ */
+function clearSessionCookie(store: Awaited<ReturnType<typeof cookies>>): void {
+  try {
+    store.delete(SESSION_COOKIE);
+  } catch {
+    // Rendering context: nothing to clear. Returning null is enough to send the
+    // visitor to the login page, and the browser drops the cookie on sign-in.
+  }
+}
+
 export async function getSessionUser(): Promise<SessionUser | null> {
   const store = await cookies();
   const raw = store.get(SESSION_COOKIE)?.value;
   if (!raw || !raw.includes('.')) return null;
-  const [sessionId, token] = raw.split('.');
-  if (!sessionId || !token) return null;
+  const parsed = parseSessionCookie(raw);
+  if (!parsed) return null;
+  const { sessionId, token } = parsed;
   // Reject tampered cookies before touching the database.
-  if (!safeEqual(token, sign(sessionId))) {
-    store.delete(SESSION_COOKIE);
+  if (!parsed.signatureValid) {
+    clearSessionCookie(store);
     return null;
   }
   const row = get<UserRow & { expires_at: string; session_token: string }>(

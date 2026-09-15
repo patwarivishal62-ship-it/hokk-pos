@@ -37,7 +37,10 @@ export function canonicalFileName(opts: {
   const ext = extensionFor(opts.mimeType);
   if (opts.slotSuffix) {
     const suffix = opts.slotSuffix.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    return `${sku}-${suffix}.${ext}`;
+    // A slot may hold several shots. Without a sequence the second upload would
+    // generate the same filename and silently overwrite the first on disk.
+    const sequence = typeof opts.index === 'number' && opts.index > 0 ? `-${opts.index + 1}` : '';
+    return `${sku}-${suffix}${sequence}.${ext}`;
   }
   const base = (opts.originalName ?? 'IMG')
     .replace(/\.[a-zA-Z0-9]+$/, '')
