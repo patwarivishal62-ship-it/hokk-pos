@@ -40,7 +40,7 @@ the team builds it.
 | `npm run dev` | Dev server on `0.0.0.0:3000` |
 | `npm run build` / `start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest — 17 files, 244 tests |
+| `npm test` | Vitest — 18 files, 256 tests |
 | `npm run db:init` | Idempotent schema apply |
 | `npm run bootstrap` | Seed system config + super admin |
 | `npm run e2e` | End-to-end pipeline smoke test against the real database |
@@ -158,7 +158,7 @@ patterns in sections 1–47 and are worth reviewing:
 Checked on a clean checkout, not assumed:
 
 - `npx tsc --noEmit` — 0 errors.
-- `npx vitest run` — 17 files, 244 tests, all passing.
+- `npx vitest run` — 18 files, 256 tests, all passing.
 - `npm run build` — clean production build, 26 routes.
 - `npm run e2e` — full pipeline against a real SQLite file: SKU generation, completeness,
   readiness, image slots, workflow gating, and a Shopify CSV export read back and asserted
