@@ -93,25 +93,14 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
         <div className="flex flex-col gap-4">
           {preview ? (
             <>
-              <Card title="Column mapping" action={<span className="text-2xs text-ink-400">{preview.columns.length} columns detected</span>}>
-                <form className="grid gap-2 px-4 py-3 sm:grid-cols-2">
-                  {IMPORT_TARGETS.map((target) => (
-                    <label key={target.key} className="text-xs">
-                      <span className="text-ink-600">{target.label}</span>
-                      <select className="field field-sm" name={`map:${target.key}`} defaultValue={preview.mapping[target.key] ?? ''}>
-                        <option value="">— not mapped —</option>
-                        {preview.columns.map((column) => (
-                          <option key={column} value={column}>
-                            {column}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ))}
-                </form>
-              </Card>
-
-              <ImportPreview previewId={params.preview!} mode={preview.mode} summary={preview.summary} />
+              <ImportPreview
+                previewId={params.preview!}
+                mode={preview.mode}
+                summary={preview.summary}
+                targets={IMPORT_TARGETS}
+                columns={preview.columns}
+                mapping={preview.mapping}
+              />
 
               <Card title={`Preview (${preview.rows.length} rows)`}>
                 <div className="table-wrap">

@@ -9,9 +9,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'),
     },
   },
+  esbuild: {
+    // Match Next.js: automatic JSX runtime for .tsx (components + tests).
+    jsx: 'automatic',
+  },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     globals: false,
     testTimeout: 20000,
   },

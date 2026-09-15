@@ -18,14 +18,12 @@ export default function SetupPage() {
             Super Admin. No catalog data is created.
           </p>
         </div>
-        <form className="card flex flex-col gap-3 p-5">
-          <SetupFields
-            defaults={{
-              name: process.env.SEED_ADMIN_NAME ?? '',
-              email: process.env.SEED_ADMIN_EMAIL ?? '',
-            }}
-          />
-        </form>
+        <SetupFields
+          defaults={{
+            name: process.env.SEED_ADMIN_NAME ?? '',
+            email: process.env.SEED_ADMIN_EMAIL ?? '',
+          }}
+        />
         <p className="mt-4 text-2xs text-ink-400">
           Roles created: Super Admin, Admin / Operations, Content, Photography, Reviewer, Viewer. Permissions are editable
           later under Settings → Roles.
