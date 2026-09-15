@@ -57,8 +57,27 @@ function isRemoteUrl(raw: string): boolean {
   );
 }
 
+/**
+ * Values pasted into deployment dashboards routinely carry surrounding
+ * whitespace or quotes. Without this, a quoted `"libsql://…"` URL would be
+ * misread as a *file* path (and fail on Vercel's read-only filesystem), and a
+ * token with a trailing newline would fail auth — both surfacing as a bare
+ * "Application error" with no hint of the real cause.
+ */
+export function normalizeEnvValue(raw: string | undefined): string {
+  let value = (raw || '').trim();
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      value = value.slice(1, -1).trim();
+    }
+  }
+  return value;
+}
+
 export function resolveDbPath(): string {
-  const raw = process.env.DATABASE_URL || 'file:./data/hokk.db';
+  const raw = resolveDbUrl();
   if (isRemoteUrl(raw)) return raw;
   const file = raw.replace(/^file:/, '');
   if (!file || file === ':memory:') return file;
@@ -66,16 +85,16 @@ export function resolveDbPath(): string {
   return path.resolve(process.cwd(), file);
 }
 
-function resolveDbUrl(): string {
-  return process.env.DATABASE_URL || 'file:./data/hokk.db';
+export function resolveDbUrl(): string {
+  return normalizeEnvValue(process.env.DATABASE_URL) || 'file:./data/hokk.db';
 }
 
-function getAuthToken(): string | undefined {
+export function dbAuthToken(): string | undefined {
   return (
-    process.env.TURSO_AUTH_TOKEN ||
-    process.env.LIBSQL_AUTH_TOKEN ||
-    process.env.DATABASE_AUTH_TOKEN ||
-    process.env.AUTH_TOKEN ||
+    normalizeEnvValue(process.env.TURSO_AUTH_TOKEN) ||
+    normalizeEnvValue(process.env.LIBSQL_AUTH_TOKEN) ||
+    normalizeEnvValue(process.env.DATABASE_AUTH_TOKEN) ||
+    normalizeEnvValue(process.env.AUTH_TOKEN) ||
     undefined
   );
 }
@@ -119,7 +138,7 @@ function createNodeSqliteDatabase(filePath: string): DbHandle {
 
 export function getDb(): DbHandle {
   const rawUrl = resolveDbUrl();
-  const cacheKey = rawUrl + '::' + (getAuthToken() || '');
+  const cacheKey = rawUrl + '::' + (dbAuthToken() || '');
 
   if (g.__hokkDb && g.__hokkDbUrl === cacheKey) return g.__hokkDb;
 
@@ -135,7 +154,7 @@ export function getDb(): DbHandle {
     db = null;
   }
 
-  const authToken = getAuthToken();
+  const authToken = dbAuthToken();
   let next: DbHandle;
 
   if (isRemoteUrl(rawUrl)) {

@@ -32,6 +32,12 @@ const nextConfig = {
   poweredByHeader: false,
   // Native bindings (libsql) must stay external to the server bundle
   serverExternalPackages: ['libsql'],
+  // The binding is loaded via a dynamic require() that static file tracing can
+  // miss; force it into every serverless function or `require('libsql')` throws
+  // "Cannot find module '@libsql/linux-x64-gnu'" at runtime on Vercel.
+  outputFileTracingIncludes: {
+    '/*': ['./node_modules/@libsql/**/*'],
+  },
   // Dev-time cross-origin asset requests (see note 2 above).
   allowedDevOrigins: effectiveAllowedOrigins,
   experimental: {

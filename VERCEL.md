@@ -241,6 +241,27 @@ database, set the Vercel Environment Variables below), then `Redeploy` and open
 `/setup`. `POST /api/admin/init` returns the same failure as JSON (`503`) for
 programmatic checks.
 
+### Still failing after the variables are set ("Could not connect to the database")
+
+The values are present but the database rejects the connection. Check, in order:
+
+1. `DATABASE_URL` starts with `libsql://` (the value from `turso db show`, not
+   the dashboard hostname and not an `https://` API URL). Surrounding quotes or
+   whitespace are stripped automatically, but an incomplete paste is not.
+2. `TURSO_AUTH_TOKEN` is a **database** token with full access, created via
+   `turso db tokens create hokk-prod` (or Turso dashboard → the database →
+   tokens). A platform API token (`turso auth token`), a read-only token, or a
+   token for a different database fails auth. When in doubt, create a fresh one
+   and update the variable.
+3. `Redeploy` after every variable change — edits do not apply to live
+   deployments.
+
+The screen's collapsed "Technical details" (or `POST /api/admin/init`, same JSON
+with `503`) shows the raw driver error: `Hrana(…)` means the URL/token pair was
+rejected or unreachable; `Cannot find module '@libsql/…'` means the native
+binding did not ship (guarded by `outputFileTracingIncludes` in
+`next.config.mjs` — if you see it, the tracing config regressed).
+
 ### Deployed site shows "Application error: a server-side exception has occurred"
 
 On current code this no longer happens for configuration problems (they show the

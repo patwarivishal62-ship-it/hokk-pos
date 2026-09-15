@@ -72,6 +72,21 @@ describe('boot-check (deployment pre-flight)', () => {
     expect(status.title).toBe('Database is not connected');
   });
 
+  it('treats a quoted, padded remote URL as remote (normalization)', () => {
+    process.env.VERCEL = '1';
+    process.env.SESSION_SECRET = 'x'.repeat(32);
+    // Quoted + padded, like a dashboard paste. 127.0.0.1:9 refuses instantly
+    // without DNS or internet, so this must reach the connection probe — i.e.
+    // "Could not connect", never "Database is not connected".
+    process.env.DATABASE_URL = '  "http://127.0.0.1:9"  ';
+    process.env.TURSO_AUTH_TOKEN = '  tok  ';
+    const status = checkBoot();
+    expect(status.ok).toBe(false);
+    if (status.ok) return;
+    expect(status.title).toBe('Could not connect to the database');
+    expect(status.detail).toBeTruthy();
+  });
+
   it('reports a missing auth token for a remote URL without one', () => {
     process.env.SESSION_SECRET = 'x'.repeat(32);
     process.env.DATABASE_URL = 'libsql://hokk-prod-abc.turso.io';

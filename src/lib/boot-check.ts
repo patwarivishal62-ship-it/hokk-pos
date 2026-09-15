@@ -1,5 +1,6 @@
 import 'server-only';
 import { isInitialized } from '@/lib/bootstrap';
+import { dbAuthToken, resolveDbUrl } from '@/lib/db';
 
 /**
  * Deployment pre-flight check.
@@ -44,15 +45,7 @@ function isRemoteDbUrl(raw: string): boolean {
   );
 }
 
-function dbAuthToken(): string | undefined {
-  return (
-    process.env.TURSO_AUTH_TOKEN ||
-    process.env.LIBSQL_AUTH_TOKEN ||
-    process.env.DATABASE_AUTH_TOKEN ||
-    process.env.AUTH_TOKEN ||
-    undefined
-  );
-}
+
 
 function sessionSecretFailure(onVercel: boolean): BootFailure {
   return {
@@ -114,7 +107,8 @@ function connectionFailure(detail: string, onVercel: boolean): BootFailure {
     intro: 'The database settings are present but the connection itself failed. Usually a typo in the URL or an expired token.',
     steps: onVercel
       ? [
-          'In Vercel → `Settings` → `Environment Variables`, check that `DATABASE_URL` starts with `libsql://` and `TURSO_AUTH_TOKEN` is the current token from Turso.',
+          'In Vercel → `Settings` → `Environment Variables`, check that `DATABASE_URL` starts with `libsql://` (no quotes or spaces around it) and `TURSO_AUTH_TOKEN` is current.',
+          'The token must be a full-access database token — create a fresh one with `turso db tokens create hokk-prod` (or in the Turso dashboard under the database, not under platform API tokens) and update the variable. Platform API tokens and read-only tokens cannot connect.',
           'Go to `Deployments` → `⋯` → `Redeploy`, then reload this page.',
         ]
       : ['Check `DATABASE_URL` in your `.env` (local development uses `file:./dev.db`).', 'Restart the dev server and reload this page.'],
@@ -130,7 +124,8 @@ export function checkBoot(): BootStatus {
   }
 
   const onVercel = process.env.VERCEL === '1';
-  const dbUrl = (process.env.DATABASE_URL || '').trim();
+  // Normalized (trimmed, unquoted) — same value the db layer connects with.
+  const dbUrl = resolveDbUrl();
 
   // 1. Sign-in is impossible without this (src/lib/session.ts throws) — and on
   // a fresh Vercel deploy it is the most commonly forgotten variable.
