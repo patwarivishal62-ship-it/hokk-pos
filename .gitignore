@@ -16,9 +16,9 @@ coverage/
 *.db-shm
 *.db-wal
 *.db-journal
-data/
-storage/
-!storage/.gitkeep
+/data/
+/storage/
+!/storage/.gitkeep
 
 # misc
 .DS_Store

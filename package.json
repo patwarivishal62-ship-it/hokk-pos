@@ -2,7 +2,7 @@
   "name": "hokk-pos",
   "version": "0.1.0",
   "private": true,
-  "description": "House of Kala Katha \u2014 Product Operations System (master catalog, content, photography & Shopify bulk export platform)",
+  "description": "House of Kala Katha — Product Operations System (master catalog, content, photography & Shopify bulk export platform)",
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "exceljs": "^4.4.0",
+    "libsql": "^0.5.29",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
