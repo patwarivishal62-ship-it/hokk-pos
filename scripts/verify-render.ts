@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { LocalStorage } from '@/lib/storage/local';
-import { buildLocalConfig, buildS3Config } from '@/lib/storage';
+import { buildLocalConfig } from '@/lib/storage';
 import { diskStatus, exportDir, hostingPublicBaseUrl, isPersistentMount, isRender } from '@/lib/hosting';
 import { resolveDbPath, resolveDbUrl } from '@/lib/db';
 
@@ -62,12 +62,7 @@ async function main(): Promise<void> {
     disk.exists ? '(exists)' : '(missing)',
     disk.persistent ? '(separate filesystem)' : '',
   );
-  if (!disk.required) {
-    ok(
-      'No disk needed',
-      'storage/database do not use the filesystem (S3-compatible bucket + remote database)',
-    );
-  } else if (!isRender()) {
+  if (!isRender()) {
     warn('Not running on Render', `on Render the disk is expected at ${disk.mountPath}`);
   } else if (!disk.exists) {
     bad('No directory at the disk mount path', `add a disk at ${disk.mountPath} (see RENDER.md)`);
@@ -86,31 +81,23 @@ async function main(): Promise<void> {
   const exportDirResolved = exportDir();
   const dbPath = resolveDbPath();
   const dbUrl = resolveDbUrl();
-  const backend = (process.env.STORAGE_BACKEND || 'LOCAL').trim().toUpperCase();
-  const storageBackend = backend === 'LOCAL' ? 'LOCAL' : backend;
-
-  console.log('  storage backend:', storageBackend);
+  console.log('  storage backend: LOCAL');
   console.log('  upload dir:', uploadDir);
   console.log('  export dir:', exportDirResolved);
   console.log('  database:', isRemote(dbUrl) ? `${dbUrl.replace(/\/\/.*@/, '//***@')} (remote)` : dbPath);
 
-  if (storageBackend === 'LOCAL') {
-    if (isRender() && !insideMount(uploadDir, disk.mountPath)) {
-      bad('Uploads are not on the persistent disk', `${uploadDir} is outside ${disk.mountPath}`);
-    } else {
-      try {
-        fs.mkdirSync(path.isAbsolute(uploadDir) ? uploadDir : path.resolve(process.cwd(), uploadDir), {
-          recursive: true,
-        });
-        fs.accessSync(path.isAbsolute(uploadDir) ? uploadDir : path.resolve(process.cwd(), uploadDir), fs.constants.W_OK);
-        ok('Upload directory is writable', uploadDir);
-      } catch (error) {
-        bad('Upload directory is not writable', (error as Error).message);
-      }
-    }
+  if (isRender() && !insideMount(uploadDir, disk.mountPath)) {
+    bad('Uploads are not on the persistent disk', `${uploadDir} is outside ${disk.mountPath}`);
   } else {
-    const s3 = buildS3Config();
-    ok('Object storage backend', `${storageBackend}${s3.bucket ? ` bucket ${s3.bucket}` : ''}`);
+    try {
+      fs.mkdirSync(path.isAbsolute(uploadDir) ? uploadDir : path.resolve(process.cwd(), uploadDir), {
+        recursive: true,
+      });
+      fs.accessSync(path.isAbsolute(uploadDir) ? uploadDir : path.resolve(process.cwd(), uploadDir), fs.constants.W_OK);
+      ok('Upload directory is writable', uploadDir);
+    } catch (error) {
+      bad('Upload directory is not writable', (error as Error).message);
+    }
   }
 
   if (!isRemote(dbUrl)) {

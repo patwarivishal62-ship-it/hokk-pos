@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { requireUser, userCan } from '@/lib/auth';
 import { all } from '@/lib/db';
-import { getStorage } from '@/lib/storage';
 import { buildSlotChecklist, photographyProgress } from '@/lib/images';
 import { Badge, Card, EmptyState, Meter, PageHeader, StatusBadge, formatDateTime } from '@/components/ui';
 import type { ProductStatus } from '@/lib/types';
@@ -70,7 +69,6 @@ export default async function PhotographyPage({ searchParams }: { searchParams: 
     { products: 0, complete: 0, outstanding: 0 },
   );
 
-  const storage = getStorage();
 
   return (
     <div className="flex flex-col gap-4">
@@ -93,7 +91,7 @@ export default async function PhotographyPage({ searchParams }: { searchParams: 
         <Kpi label="Outstanding shots" value={totals.outstanding} tone="text-amber-700" />
         <Kpi
           label="Storage"
-          value={storage.backend === 'GDRIVE' ? 'Google Drive' : storage.backend === 'S3' ? 'S3-compatible' : 'Local disk'}
+          value="Local disk"
         />
       </div>
 

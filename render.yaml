@@ -47,8 +47,6 @@ services:
       # --- Where state lives (all on the disk) -----------------------------
       - key: DATABASE_URL
         value: file:/var/data/hokk.db
-      - key: STORAGE_BACKEND
-        value: LOCAL
       - key: UPLOAD_DIR
         value: /var/data/storage/uploads
       - key: EXPORT_DIR

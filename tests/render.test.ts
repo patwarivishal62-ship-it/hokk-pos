@@ -25,7 +25,6 @@ const RENDER_KEYS = [
   'UPLOAD_DIR',
   'EXPORT_DIR',
   'DATABASE_URL',
-  'STORAGE_BACKEND',
   'SESSION_SECRET',
   'ALLOW_EPHEMERAL_STORAGE',
   'VERCEL',
@@ -241,16 +240,19 @@ describe('boot check on Render', () => {
     expect(fs.existsSync(path.join(disk, 'hokk.db'))).toBe(true);
   });
 
-  it('needs no disk when images and database live off the filesystem', () => {
-    simulateRender({ STORAGE_BACKEND: 'S3', DATABASE_URL: 'libsql://hokk-prod.turso.io' });
+  it('ignores a stale STORAGE_BACKEND left over from the Drive/S3 trials', async () => {
+    simulateRender({ ALLOW_EPHEMERAL_STORAGE: '1' });
+    // A leftover GDRIVE setting (the 401 unauthorized_client failure) must
+    // never break uploads again — storage is always local disk now.
+    process.env.STORAGE_BACKEND = 'GDRIVE';
     process.env.SESSION_SECRET = 'x'.repeat(32);
-    process.env.TURSO_AUTH_TOKEN = 'token';
     const status = checkBoot();
-    // The probe cannot reach Turso from the test environment, but the disk gate
-    // must not fire — a connection error is a different, expected failure here.
-    expect(status.ok).toBe(false);
-    if (status.ok) return;
-    expect(status.title).not.toBe('Persistent disk is not attached');
+    expect(status.ok).toBe(true);
+    const { getStorage, _internal } = await import('@/lib/storage');
+    _internal.clearCache();
+    expect(getStorage().backend).toBe('LOCAL');
+    delete process.env.STORAGE_BACKEND;
+    _internal.clearCache();
   });
 
   it('honours the ALLOW_EPHEMERAL_STORAGE opt-out', () => {

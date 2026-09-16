@@ -33,7 +33,6 @@ export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; pho
     guidance: slot.guidance,
   }));
 
-  const backend = getSetting('storage.backend') || 'LOCAL';
   const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
 
   const images = bundle.images.map((image) => {
@@ -107,9 +106,7 @@ export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; pho
         <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <strong>{missingPublic.length} image(s) have no public URL.</strong> Images cannot be imported into Shopify until
           publicly accessible URLs are available.{' '}
-          {backend === 'LOCAL'
-            ? `Set “Public base URL” in Settings → Storage (currently ${publicBase || 'not set'}) or switch the backend to Google Drive.`
-            : 'Check that the Google Drive files are shared with “anyone with the link”.'}
+          {`Set “Public base URL” in Settings → Storage (currently ${publicBase || 'not set'}).`}
         </div>
       )}
 
@@ -121,22 +118,17 @@ export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; pho
         canEdit={userCan(user, 'image.edit')}
         canApprove={userCan(user, 'image.approve')}
         canDelete={userCan(user, 'image.delete')}
-        backend={backend}
       />
 
       <Card title="Storage">
-        <div className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-3">
+        <div className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-2">
           <div>
             <span className="text-2xs uppercase tracking-wider text-ink-500">Backend</span>
-            <p>{backend === 'GDRIVE' ? 'Google Drive' : 'Local disk'}</p>
+            <p>Local disk</p>
           </div>
           <div>
-            <span className="text-2xs uppercase tracking-wider text-ink-500">Original folder</span>
-            <p className="mono">{getSetting('drive.original_folder_id') || 'not linked'}</p>
-          </div>
-          <div>
-            <span className="text-2xs uppercase tracking-wider text-ink-500">Final folder</span>
-            <p className="mono">{getSetting('drive.final_folder_id') || 'not linked'}</p>
+            <span className="text-2xs uppercase tracking-wider text-ink-500">Public base URL</span>
+            <p className="mono">{publicBase || 'not set'}</p>
           </div>
         </div>
       </Card>

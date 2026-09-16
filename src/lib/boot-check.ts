@@ -1,6 +1,7 @@
 import 'server-only';
 import { isInitialized } from '@/lib/bootstrap';
 import { dbAuthToken, resolveDbUrl } from '@/lib/db';
+import { pruneRetiredStorageSettings } from '@/lib/settings';
 import { diskStatus, isPersistentMount, isRender, renderDiskMount } from '@/lib/hosting';
 
 /**
@@ -105,8 +106,7 @@ function tokenFailure(onVercel: boolean): BootFailure {
  * Render services have an ephemeral filesystem: without a persistent disk every
  * uploaded photograph and every catalog edit is erased on the next deploy or
  * restart. That is silent and unrecoverable, so the app refuses to start until
- * the disk is attached (or storage is moved to S3-compatible object storage).
- * `ALLOW_EPHEMERAL_STORAGE=1` is the deliberate opt-out.
+ * the disk is attached. `ALLOW_EPHEMERAL_STORAGE=1` is the deliberate opt-out.
  */
 function renderDiskFailure(mountPath: string, directoryExists: boolean): BootFailure {
   return {
@@ -121,7 +121,6 @@ function renderDiskFailure(mountPath: string, directoryExists: boolean): BootFai
       `Name it \`hokk-data\`, set the mount path to \`${mountPath}\`, and pick a size (10 GB holds roughly 5 000 catalogue photographs). Saving the disk redeploys the service.`,
       'That is the only step — the app already writes to the disk by default, and Render supplies `RENDER_EXTERNAL_URL` for image links.',
       'Disk mounted somewhere else? Set `RENDER_DISK_MOUNT` to that path (plus `UPLOAD_DIR` and `DATABASE_URL` if you moved them).',
-      'Prefer object storage? Set `STORAGE_BACKEND=S3` with Cloudflare R2 (see `S3_SETUP.md`) **and** a remote `DATABASE_URL` (Turso/libSQL, see `VERCEL.md`) — that combination needs no disk.',
       'Deliberately ephemeral? Set `ALLOW_EPHEMERAL_STORAGE=1` to start anyway; every image and edit will be lost on redeploy.',
     ],
   };
@@ -185,7 +184,15 @@ export function checkBoot(): BootStatus {
   // 4. Probe the database. On first run this also creates the schema
   // (ensureSchema inside isInitialized) — same behaviour as before.
   try {
-    return { ok: true, initialized: isInitialized() };
+    const initialized = isInitialized();
+    // Self-heal databases that still carry Drive/S3 trial settings (no-op
+    // once clean). Never allowed to fail the boot check itself.
+    try {
+      pruneRetiredStorageSettings();
+    } catch {
+      /* ignore — uploads work regardless; the rows are inert */
+    }
+    return { ok: true, initialized };
   } catch (error) {
     return connectionFailure(error instanceof Error ? error.message : String(error), onVercel);
   }

@@ -31,21 +31,11 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
   'images.allowed.types': 'image/jpeg,image/png,image/webp',
   'images.recommend.bytes': '2097152',
 
-  // Storage
-  'storage.backend': 'LOCAL', // LOCAL | GDRIVE | S3
+  // Storage — local disk only. Uploads live in UPLOAD_DIR (on Render the
+  // persistent disk) and are served via /api/media/<key>. The public base
+  // URL is what Shopify fetches images from.
+  'storage.backend': 'LOCAL',
   'storage.public_base_url': '',
-  'drive.original_folder_id': '',
-  'drive.final_folder_id': '',
-  'drive.parent_folder_id': '',
-  'drive.public_url_template': 'https://lh3.googleusercontent.com/d/{fileId}',
-  // S3-compatible backend (Cloudflare R2 / Backblaze B2 / AWS S3 / MinIO).
-  // Credentials stay in env (S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY); these
-  // are the non-secret parts, editable from Settings → Storage.
-  's3.bucket': '',
-  's3.region': '',
-  's3.endpoint': '',
-  's3.public_base_url': '',
-  's3.presign_expires': '604800',
 
   // Shopify defaults (spec §32)
   'shopify.vendor': 'House of Kala Katha',
@@ -139,6 +129,24 @@ export function getJson<T>(key: string, fallback: T): T {
   return parseJson<T>(getSetting(key), fallback);
 }
 
+/**
+ * Drops settings left behind by the retired Google Drive / S3 storage trials
+ * and forces `storage.backend` back to LOCAL, so a stale value can never
+ * route uploads to an adapter that no longer exists. No-op (no writes, cache
+ * untouched) when there is nothing to prune. Idempotent.
+ */
+export function pruneRetiredStorageSettings(): void {
+  const stale = get<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM setting
+     WHERE key LIKE 'drive.%' OR key LIKE 's3.%' OR (key = 'storage.backend' AND value != 'LOCAL')`,
+  );
+  if ((stale?.c ?? 0) === 0) return;
+  const stamp = nowIso();
+  run(`DELETE FROM setting WHERE key LIKE 'drive.%' OR key LIKE 's3.%'`);
+  run(`UPDATE setting SET value = 'LOCAL', updated_at = ? WHERE key = 'storage.backend' AND value != 'LOCAL'`, [stamp]);
+  settingsCache = null;
+}
+
 /** Seeds defaults for any key not already present. Idempotent. */
 export function ensureDefaultSettings(): void {
   const existing = new Set(all<{ key: string }>('SELECT key FROM setting').map((r) => r.key));
@@ -147,4 +155,5 @@ export function ensureDefaultSettings(): void {
     if (existing.has(key)) continue;
     run('INSERT INTO setting (key, value, updated_at) VALUES (?, ?, ?)', [key, value, stamp]);
   }
+  pruneRetiredStorageSettings();
 }

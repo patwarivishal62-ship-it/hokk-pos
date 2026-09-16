@@ -20,7 +20,6 @@ coverage/
 /storage/*
 !/storage/.gitkeep
 !/storage/README.md
-!/storage/drive-folders.json
 
 # misc
 .DS_Store

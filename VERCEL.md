@@ -14,14 +14,13 @@ storage/
 ```
 
 Because `storage/` is unanchored it matches **any** directory named `storage`,
-including `src/lib/storage/` which holds the four source files the app imports from:
+including `src/lib/storage/` which holds the source files the app imports from:
 
 - `src/lib/storage/index.ts`
 - `src/lib/storage/types.ts`
 - `src/lib/storage/local.ts`
-- `src/lib/storage/gdrive.ts`
 
-Ten import sites (including `tests/gdrive.test.ts`) therefore failed with
+Ten import sites therefore failed with
 `Module not found: Can't resolve '@/lib/storage'` both on Vercel and locally
 when running `npm test` from a clean checkout.
 
@@ -153,77 +152,19 @@ Three mechanisms cover it:
 Build does **not** need a DB; `next build` collects static pages without
 calling `ensureSchema()`. Runtime is where Turso is contacted.
 
-### 3. Google Drive — wiring and live verification
+### 3. Images on Vercel — use Render instead
 
-**Env vars** (all read by `buildDriveConfig()` in `src/lib/storage/index.ts`):
-
-```env
-STORAGE_BACKEND="GDRIVE"   # or LOCAL
-# Option A — service account (recommended on Vercel)
-GDRIVE_SERVICE_ACCOUNT_JSON='{"type":"service_account","client_email":"...","private_key":"..."}'
-# The JSON may also be base64-encoded or pointed to via:
-GDRIVE_SERVICE_ACCOUNT_FILE="/var/task/secrets/gdrive.json"
-
-# Option B — OAuth refresh token
-GDRIVE_CLIENT_ID=""
-GDRIVE_CLIENT_SECRET=""
-GDRIVE_REFRESH_TOKEN=""
-
-# Folder config (created automatically if missing)
-GDRIVE_PARENT_FOLDER_ID="1a2b3c..."   # shared folder under which “House of Kala Katha” is created
-GDRIVE_PUBLIC_URL_TEMPLATE="https://lh3.googleusercontent.com/d/{fileId}"
-```
-
-Settings → Storage → **Test connection** calls `testDriveConnectionAction()` which
-instantiates `GoogleDriveStorage(buildDriveConfig())`, runs `ensureFolders()`
-(creates `House of Kala Katha/Original` and `…/Final` under the parent), shares
-each file as `anyone` with `role=reader`, and stores `drive.original_folder_id`
-/ `drive.final_folder_id` in the `setting` table. `storage.backend` is flipped to
-`GDRIVE` on success.
-
-**Live verification**
-
-Unit tests in `tests/gdrive.test.ts` mock the Drive REST API (token endpoint,
-`drive/v3/files` query/create, `upload/drive/v3/files`, `permissions`, `alt=media`)
-and assert:
-
-- RS256 JWT signing (`createJwtAssertion` + `verifyAssertion`)
-- `getAccessToken` caching and refresh-token flow
-- `ensureFolders` creates and reuses the three folders
-- `put` routes to `Original` vs `Final`, keeps the canonical `HOKK-…-HERO.jpg`
-  name, shares publicly and returns
-  `DEFAULT_PUBLIC_URL_TEMPLATE.replace('{fileId}', id)`
-- Custom `publicUrlTemplate` is honored
-- `read` and `remove` round-trip
-
-For a real account, after deploying with the env above:
-
-```bash
-# Locally with real credentials
-GDRIVE_SERVICE_ACCOUNT_JSON="$(cat service-account.json)" \
-GDRIVE_PARENT_FOLDER_ID="1sharedFolderId" \
-npx tsx scripts/verify-gdrive.ts
-# → uploads a 1×1 png to Original, promotes copy to Final, reads back bytes, deletes, prints public URLs
-```
-
-Or via the UI: Settings → Storage → *Test connection* should report
-`Connected. Original folder … Final folder …`. Upload a product image to
-“Original” and “Promote to Final” — the product’s `public_url` should resolve to
-`https://lh3.googleusercontent.com/d/<fileId>` and be fetchable without auth
-(Shopify requirement).
-
-The adapter has never been exercised against a real Drive before this fix;
-the wire-up above is the first live path. Keep `GDRIVE_SERVICE_ACCOUNT_JSON`
-base64-encoded in Vercel if the raw JSON contains newlines.
+Vercel's filesystem is read-only and ephemeral, so uploaded photographs cannot
+live there. **Image storage is local disk only** (`UPLOAD_DIR`, served via
+`/api/media/<key>`), which makes Vercel a poor fit for this app: every upload
+would vanish on the next deploy. The supported host is **Render with a
+persistent disk** — see `RENDER.md`.
 
 ## Vercel Environment Checklist
 
 - `DATABASE_URL` = `libsql://…` (Turso)
 - `TURSO_AUTH_TOKEN` = `…`
-- `STORAGE_BACKEND` = `GDRIVE`
-- `GDRIVE_SERVICE_ACCOUNT_JSON` = `…` (or file)
-- `GDRIVE_PARENT_FOLDER_ID` = shared folder ID
-- `PUBLIC_BASE_URL` = `https://your-app.vercel.app` (for LOCAL fallback, not needed with GDRIVE)
+- `PUBLIC_BASE_URL` = `https://your-app.vercel.app`
 - `ADMIN_INIT_SECRET` = random 32+ chars (optional, for `/api/admin/init`)
 - `ALLOWED_ORIGINS` = your domain (e.g. `your-app.vercel.app`), defaults to `*.e2b.app`
 - `SESSION_SECRET` = random 32+ chars

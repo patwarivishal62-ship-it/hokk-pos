@@ -11,7 +11,6 @@ The app uses `libsql` synchronous API over HTTP to Turso. Each `all()`, `get()`,
 - Product detail: bundleFor does 7 queries + 3 more = 10 roundtrips = ~2s
 - Layout: isInitialized() + getSetting() = 3-4 queries on EVERY page load
 - Settings: getSetting() called 10+ times per product creation, each DB query
-- GDrive: put() called ensureFolders() which did 3 Drive API calls per upload
 - No caching anywhere, `force-dynamic` disables Next.js caching
 - Default product limit 50 rows, heavy table render
 
@@ -71,13 +70,11 @@ The app uses `libsql` synchronous API over HTTP to Turso. Each `all()`, `get()`,
 
 **Impact:** Every page load saves 2-3 roundtrips = ~0.5s
 
-### 6. GDrive Fast Path (`src/lib/storage/gdrive.ts`)
+### 6. Storage fast path
 
-- `ensureFolders()` now returns immediately if cached IDs exist from env/settings
-- `put()` uses cached folder IDs if available, avoids 3 Drive API calls per upload
-- Previously: each image upload did 3 Drive `findFolder` API calls = +600ms
-
-**Impact:** Image upload 1.5s → 0.8s
+The retired Google Drive backend's `put()` did 3 API calls per upload to resolve
+folders; caching those IDs cut uploads from 1.5s to 0.8s. The Drive/S3 backends
+have since been removed — uploads go straight to local disk with no API calls.
 
 ### 7. Next.js Config (`next.config.mjs`)
 
@@ -138,7 +135,7 @@ Changed default from 50 to 25 in both `page.tsx` and `products.ts`. User can sti
 
 3. **Add Redis or Vercel KV for shared cache:** Current cache is per-serverless-function instance (in-memory). For multi-instance, use Redis with 30s TTL for dashboard.
 
-4. **Image CDN:** Use Cloudflare in front of `lh3.googleusercontent.com` or use Vercel Image Optimization for GDrive images.
+4. **Image CDN:** Put Cloudflare in front of `/api/media/*` (cacheable, immutable URLs) when traffic grows.
 
 5. **Pagination:** For 1000+ products, add cursor pagination and virtualized table (e.g., TanStack Virtual).
 
@@ -163,7 +160,6 @@ Changed default from 50 to 25 in both `page.tsx` and `products.ts`. User can sti
 - `src/lib/products.ts` — reduced limit, slot cache, query TTLs
 - `src/lib/settings.ts` — settings cache
 - `src/lib/bootstrap.ts` — init cache per URL
-- `src/lib/storage/gdrive.ts` — fast path for folder IDs
 - `next.config.mjs` — compression, image optimization, headers
 - `db/schema.sql` — additional indexes
 - `src/app/(app)/dashboard/loading.tsx` — skeleton
