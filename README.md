@@ -111,13 +111,27 @@ schema version, and both a Shopify CSV and an internal multi-sheet Excel workboo
 
 ## Storage
 
-Images are stored on **local disk**: uploads land in `original/<SKU>/<file>` and
-`final/<SKU>/<file>` under `UPLOAD_DIR` and are served publicly at
-`/api/media/<key>`. That route is deliberately unauthenticated because Shopify
-must be able to fetch `Product image URL` with no credentials. The app derives
-that URL from the current request's forwarded HTTPS host automatically;
-`PUBLIC_BASE_URL` (or `storage.public_base_url` in Settings) is only needed to
-force a different custom domain.
+Two backends, switchable per deployment (`STORAGE_BACKEND` env var or Settings
+→ Storage; env wins when set):
+
+- **LOCAL** (default) — uploads land in `original/<SKU>/<file>` and
+  `final/<SKU>/<file>` under `UPLOAD_DIR` and are served publicly at
+  `/api/media/<key>`. That route is deliberately unauthenticated because Shopify
+  must be able to fetch `Product image URL` with no credentials. The app derives
+  that URL from the current request's forwarded HTTPS host automatically;
+  `PUBLIC_BASE_URL` (or `storage.public_base_url` in Settings) is only needed to
+  force a different custom domain. Note *local* means the machine running the
+  app — on a laptop, other devices cannot see those photos.
+- **CLOUDINARY** — uploads go to a free Cloudinary account instead, so every
+  device views the same online copy the moment an upload finishes, and Shopify
+  imports the same public URLs. Rows remember their own backend, so existing
+  local photos keep serving until migrated from Settings → Cloud storage tools.
+  Five-minute setup: `CLOUD_STORAGE.md`.
+
+For the product data itself (the SQLite file), point every device at one shared
+online database — free Turso via `DATABASE_URL=libsql://…` + `TURSO_AUTH_TOKEN`
+— also covered in `CLOUD_STORAGE.md`. Alternatively deploy once on Render and
+have the whole team log into that URL.
 
 On **Render** (`render.yaml`) everything sits on a **persistent disk** mounted at
 `/var/data`: uploads in `/var/data/storage/uploads`, exports in

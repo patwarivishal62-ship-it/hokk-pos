@@ -152,18 +152,20 @@ Three mechanisms cover it:
 Build does **not** need a DB; `next build` collects static pages without
 calling `ensureSchema()`. Runtime is where Turso is contacted.
 
-### 3. Images on Vercel — use Render instead
+### 3. Images on Vercel — use Cloudinary
 
 Vercel's filesystem is read-only and ephemeral, so uploaded photographs cannot
-live there. **Image storage is local disk only** (`UPLOAD_DIR`, served via
-`/api/media/<key>`), which makes Vercel a poor fit for this app: every upload
-would vanish on the next deploy. The supported host is **Render with a
-persistent disk** — see `RENDER.md`.
+live there. Set `STORAGE_BACKEND=CLOUDINARY` plus the three `CLOUDINARY_*`
+variables (see `CLOUD_STORAGE.md`) and uploads go to shared online storage
+instead of the disk — this is the supported way to run image uploads on
+Vercel. Without Cloudinary, every upload would vanish on the next deploy; the
+disk-based alternative is **Render with a persistent disk** — see `RENDER.md`.
 
 ## Vercel Environment Checklist
 
 - `DATABASE_URL` = `libsql://…` (Turso)
 - `TURSO_AUTH_TOKEN` = `…`
+- `STORAGE_BACKEND` = `CLOUDINARY` + `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` (see `CLOUD_STORAGE.md`)
 - `PUBLIC_BASE_URL` = optional custom-domain override (the request host is detected automatically)
 - `ADMIN_INIT_SECRET` = random 32+ chars (optional, for `/api/admin/init`)
 - `ALLOWED_ORIGINS` = your domain (e.g. `your-app.vercel.app`), defaults to `*.e2b.app`

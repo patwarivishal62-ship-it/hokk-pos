@@ -31,9 +31,10 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
   'images.allowed.types': 'image/jpeg,image/png,image/webp',
   'images.recommend.bytes': '2097152',
 
-  // Storage — local disk only. Uploads live in UPLOAD_DIR (on Render the
-  // persistent disk) and are served via /api/media/<key>. The public base
-  // URL is what Shopify fetches images from.
+  // Storage — LOCAL (the server's own disk, served via /api/media/<key>)
+  // or CLOUDINARY (one shared online copy for every device — see
+  // CLOUD_STORAGE.md). The public base URL is what Shopify fetches
+  // LOCAL images from; STORAGE_BACKEND in the environment overrides this.
   'storage.backend': 'LOCAL',
   'storage.public_base_url': '',
 
@@ -131,19 +132,24 @@ export function getJson<T>(key: string, fallback: T): T {
 
 /**
  * Drops settings left behind by the retired Google Drive / S3 storage trials
- * and forces `storage.backend` back to LOCAL, so a stale value can never
- * route uploads to an adapter that no longer exists. No-op (no writes, cache
- * untouched) when there is nothing to prune. Idempotent.
+ * and repairs a `storage.backend` value that names no known adapter, so a
+ * stale value can never route uploads to an adapter that no longer exists.
+ * LOCAL and CLOUDINARY are both valid and left alone. No-op (no writes,
+ * cache untouched) when there is nothing to prune. Idempotent.
  */
 export function pruneRetiredStorageSettings(): void {
   const stale = get<{ c: number }>(
     `SELECT COUNT(*) AS c FROM setting
-     WHERE key LIKE 'drive.%' OR key LIKE 's3.%' OR (key = 'storage.backend' AND value != 'LOCAL')`,
+     WHERE key LIKE 'drive.%' OR key LIKE 's3.%'
+        OR (key = 'storage.backend' AND value NOT IN ('LOCAL', 'CLOUDINARY'))`,
   );
   if ((stale?.c ?? 0) === 0) return;
   const stamp = nowIso();
   run(`DELETE FROM setting WHERE key LIKE 'drive.%' OR key LIKE 's3.%'`);
-  run(`UPDATE setting SET value = 'LOCAL', updated_at = ? WHERE key = 'storage.backend' AND value != 'LOCAL'`, [stamp]);
+  run(
+    `UPDATE setting SET value = 'LOCAL', updated_at = ? WHERE key = 'storage.backend' AND value NOT IN ('LOCAL', 'CLOUDINARY')`,
+    [stamp],
+  );
   settingsCache = null;
 }
 

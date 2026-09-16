@@ -1,13 +1,18 @@
 /**
- * Storage types — local disk is the only backend.
+ * Storage types — two backends.
  *
- * Uploaded photographs are written to the filesystem (`UPLOAD_DIR`, on Render
- * the persistent disk at /var/data/storage/uploads) and served back through
- * `GET /api/media/<key>`. Rows written by earlier Google Drive / S3 trials
- * keep their stored `public_url`, which is still honoured — see
- * `resolvePublicUrl`.
+ * - LOCAL: uploaded photographs are written to the server's own filesystem
+ *   (`UPLOAD_DIR`, on Render the persistent disk at
+ *   /var/data/storage/uploads) and served back through
+ *   `GET /api/media/<key>`.
+ * - CLOUDINARY: uploads go to Cloudinary over HTTPS and the row keeps the
+ *   public id + secure_url, so every device, deployment and Shopify import
+ *   sees the same online copy. Setup: `CLOUD_STORAGE.md`.
+ *
+ * Rows written by the retired Google Drive / S3 trials keep their stored
+ * `public_url`, which is still honoured — see `resolvePublicUrl`.
  */
-export type StorageBackend = 'LOCAL';
+export type StorageBackend = 'LOCAL' | 'CLOUDINARY';
 
 export type ImageFolder = 'ORIGINAL' | 'FINAL';
 

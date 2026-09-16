@@ -167,9 +167,13 @@ export function seedSystemDefaults(): void {
     run('INSERT INTO setting (key, value, updated_at) VALUES (?, ?, ?)', [key, value, stamp]);
   }
   // Databases created before the Drive/S3 trials were retired may still carry
-  // their settings — drop them so uploads always stay on local disk.
+  // their settings — drop the dead keys and repair a backend value that
+  // names no known adapter. LOCAL and CLOUDINARY are both valid.
   run(`DELETE FROM setting WHERE key LIKE 'drive.%' OR key LIKE 's3.%'`);
-  run(`UPDATE setting SET value = 'LOCAL', updated_at = ? WHERE key = 'storage.backend' AND value != 'LOCAL'`, [stamp]);
+  run(
+    `UPDATE setting SET value = 'LOCAL', updated_at = ? WHERE key = 'storage.backend' AND value NOT IN ('LOCAL', 'CLOUDINARY')`,
+    [stamp],
+  );
 
   for (const template of IMAGE_TEMPLATES) {
     const existing = get<{ id: string }>('SELECT id FROM image_slot_template WHERE key = ?', [template.key]);
