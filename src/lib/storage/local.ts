@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { defaultUploadDir, hostingPublicBaseUrl } from '@/lib/hosting';
 import type { PutInput, PutResult, ReadInput, RemoveInput, StorageStatus } from './types';
 
 export class LocalStorage {
@@ -9,8 +10,9 @@ export class LocalStorage {
   constructor(opts: { uploadDir?: string } = {}) {
     let raw = opts.uploadDir || process.env.UPLOAD_DIR;
     if (!raw) {
-      // On Vercel the filesystem is read-only except /tmp — use /tmp for ephemeral uploads
-      raw = process.env.VERCEL ? '/tmp/storage/uploads' : 'storage/uploads';
+      // Host-aware default: on Render the persistent disk, on Vercel /tmp
+      // (read-only filesystem), otherwise ./storage/uploads.
+      raw = defaultUploadDir();
     }
     // If absolute, keep as is; otherwise resolve against cwd
     this.uploadDir = path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
@@ -26,7 +28,7 @@ export class LocalStorage {
     } catch {
       // settings may not be ready (e.g. in tests before DB init) — ignore
     }
-    if (!base) base = process.env.PUBLIC_BASE_URL || '';
+    if (!base) base = hostingPublicBaseUrl();
     return base.replace(/\/$/, '');
   }
 

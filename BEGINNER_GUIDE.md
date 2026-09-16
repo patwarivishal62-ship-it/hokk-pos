@@ -171,6 +171,27 @@ Your photos will be stored on your computer/server under `storage/uploads/origin
 
 ---
 
+## Hosting it online? Use Render (photos kept for real)
+
+If you want the app on the internet with photos stored for real (not in Drive),
+deploy it to **Render** — the step-by-step, click-by-click guide is in
+**`RENDER.md`**.
+
+The short version:
+
+1. Render Dashboard → **New** → **Blueprint** → pick this repository → **Apply**.
+2. Render reads `render.yaml` and creates the app **plus a 10 GB disk** mounted
+   at `/var/data` — that disk is where your photos and the product data live.
+3. When Render asks for `ALLOWED_ORIGINS`, type your service host
+   (e.g. `hokk-pos.onrender.com`). Leave `PUBLIC_BASE_URL` blank.
+4. Open your service URL → `/setup` → create your first account.
+
+The app will **refuse to start** if that disk is missing (it shows a screen with
+these exact steps) — because without it Render wipes everything on every deploy.
+That warning is a feature, not an error: nothing gets lost quietly.
+
+---
+
 ## Need Help? Tell me:
 
 1. Do you have `service-account.json` file? Yes/No

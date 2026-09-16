@@ -11,6 +11,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { defaultDatabaseUrl } from '@/lib/hosting';
 
 type SqlValue = string | number | bigint | null;
 
@@ -65,7 +66,10 @@ export function resolveDbPath(): string {
 }
 
 export function resolveDbUrl(): string {
-  return normalizeEnvValue(process.env.DATABASE_URL) || 'file:./data/hokk.db';
+  // No DATABASE_URL: fall back to a file database, placed on Render's
+  // persistent disk (RENDER=true → /var/data) so the catalog survives deploys.
+  // See src/lib/hosting.ts.
+  return normalizeEnvValue(process.env.DATABASE_URL) || defaultDatabaseUrl();
 }
 
 export function dbAuthToken(): string | undefined {

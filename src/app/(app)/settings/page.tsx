@@ -2,6 +2,8 @@ import { requirePermission, userCan } from '@/lib/auth';
 import { all, get, parseJson } from '@/lib/db';
 import { getBoolean, getSetting } from '@/lib/settings';
 import { SCHEMA_PRESETS, findPreset } from '@/lib/shopify/schema';
+import { buildLocalConfig } from '@/lib/storage';
+import { diskStatus, hostingPublicBaseUrl, isRender, renderExternalUrl } from '@/lib/hosting';
 import { Badge, Card, PageHeader } from '@/components/ui';
 import { ActionForm } from '@/components/action-form';
 import { applyShopifyPresetAction, saveSettingsAction, testDriveConnectionAction, testS3ConnectionAction, updateMappingAction } from '@/app/actions/settings';
@@ -22,6 +24,11 @@ export default async function SettingsPage() {
   const settings = all<SettingRow>('SELECT key, value, updated_at FROM setting ORDER BY key');
   const byKey = new Map(settings.map((setting) => [setting.key, setting]));
   const backend = getSetting('storage.backend') || 'LOCAL';
+  // What the app will actually use — includes the Render fallbacks, so the
+  // operator sees the effective base URL rather than a blank field.
+  const effectiveBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
+  const disk = diskStatus();
+  const onRender = isRender();
   const schemaKey = getSetting('shopify.schema_key') || 'shopify-product-csv';
   const preset = findPreset(schemaKey);
   const mappings = all<{ id: string; column: string; level: string; enabled: number; sort_order: number }>(
@@ -81,7 +88,19 @@ export default async function SettingsPage() {
             </p>
           </Card>
 
-          <Card title="Storage" action={<Badge tone={backend === 'GDRIVE' || backend === 'S3' ? 'success' : 'neutral'}>{backend}</Badge>}>
+          <Card
+            title="Storage"
+            action={
+              <span className="flex items-center gap-2">
+                {onRender && (
+                  <Badge tone={disk.persistent ? 'success' : 'danger'}>
+                    {disk.persistent ? `Render disk ${disk.mountPath}` : 'Render disk missing'}
+                  </Badge>
+                )}
+                <Badge tone={backend === 'GDRIVE' || backend === 'S3' ? 'success' : 'neutral'}>{backend}</Badge>
+              </span>
+            }
+          >
             <div className="flex flex-col gap-3 px-4 py-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <label className="text-xs">
@@ -113,8 +132,15 @@ export default async function SettingsPage() {
                 <p className="mt-1">
                   Shopify fetches <span className="mono">Product image URL</span> with no credentials, so assets must be
                   publicly readable. With local storage, set the public base URL to this server (for example{' '}
-                  <span className="mono">{process.env.PUBLIC_BASE_URL || 'https://your-domain'}</span>) — the app serves
-                  files at <span className="mono">/api/media/&lt;key&gt;</span>.
+                  <span className="mono">{effectiveBase || 'https://your-domain'}</span>) — the app serves files at{' '}
+                  <span className="mono">/api/media/&lt;key&gt;</span>.
+                </p>
+                <p className="mt-1">
+                  On <strong>Render</strong> everything below happens automatically: uploads and the database live on the
+                  persistent disk at <span className="mono">{buildLocalConfig().uploadDir}</span> /{' '}
+                  <span className="mono">{disk.mountPath}</span>, and the public base URL defaults to{' '}
+                  <span className="mono">{renderExternalUrl() || 'RENDER_EXTERNAL_URL'}</span>. See{' '}
+                  <span className="mono">RENDER.md</span>.
                 </p>
                 <p className="mt-1">
                   With S3-compatible storage (recommended: <strong>Cloudflare R2</strong> — free tier, no egress fees,
