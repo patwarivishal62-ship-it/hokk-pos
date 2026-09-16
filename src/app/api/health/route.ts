@@ -1,7 +1,7 @@
 import { checkBoot } from '@/lib/boot-check';
 import { dbAuthToken, resolveDbUrl } from '@/lib/db';
 import { diskStatus, hostingPublicBaseUrl, isRender, renderExternalUrl } from '@/lib/hosting';
-import { buildLocalConfig, buildS3Config, getStorage } from '@/lib/storage';
+import { buildLocalConfig, getStorage } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +18,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET() {
   const boot = checkBoot();
-  const backend = (process.env.STORAGE_BACKEND || 'LOCAL').trim().toUpperCase();
   const storage = getStorage();
-  const s3 = buildS3Config();
   const disk = diskStatus();
   const dbUrl = resolveDbUrl();
 
@@ -32,10 +30,9 @@ export async function GET() {
     // is what a Shopify CSV import fetches images from.
     publicBaseUrl: hostingPublicBaseUrl(),
     storage: {
-      backend,
+      backend: 'LOCAL' as const,
       configured: storage.isConfigured(),
       localUploadDir: buildLocalConfig().uploadDir,
-      s3: backend === 'S3' ? { bucket: s3.bucket ?? null, region: s3.region ?? null } : undefined,
     },
     database: {
       kind: /^(libsql|https?|wss?):/i.test(dbUrl) ? 'remote' : 'file',

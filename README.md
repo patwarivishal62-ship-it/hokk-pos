@@ -40,7 +40,7 @@ the team builds it.
 | `npm run dev` | Dev server on `0.0.0.0:3000` |
 | `npm run build` / `start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest — 24 files, 363 tests |
+| `npm test` | Vitest — 22 files, 315 tests |
 | `npm run db:init` | Idempotent schema apply |
 | `npm run bootstrap` | Seed system config + super admin |
 | `npm run e2e` | End-to-end pipeline smoke test against the real database |
@@ -111,36 +111,24 @@ schema version, and both a Shopify CSV and an internal multi-sheet Excel workboo
 
 ## Storage
 
-`STORAGE_BACKEND` selects `LOCAL`, `GDRIVE` or `S3`.
+Images are stored on **local disk**: uploads land in `original/<SKU>/<file>` and
+`final/<SKU>/<file>` under `UPLOAD_DIR` and are served publicly at
+`/api/media/<key>`. That route is deliberately unauthenticated because Shopify
+must be able to fetch `Product image URL` with no credentials; set
+`PUBLIC_BASE_URL` (or `storage.public_base_url` in Settings) so the generated
+URLs are reachable from outside.
 
-- **LOCAL** writes under `UPLOAD_DIR` and serves files at `/api/media/<key>`. That route is
-  deliberately unauthenticated because Shopify must be able to fetch it; set
-  `PUBLIC_BASE_URL` so the generated URLs are reachable from outside. On Render both
-  happen automatically — see the next bullet.
-- **S3** talks to any S3-compatible object store — **Cloudflare R2** (recommended:
-  free tier, zero egress fees, static access keys instead of Google's expiring OAuth),
-  Backblaze B2, AWS S3 or MinIO — using hand-rolled AWS SigV4 signing, no SDK. Uploads
-  land in `original/<SKU>/<file>` and `final/<SKU>/<file>`. With `S3_PUBLIC_BASE_URL`
-  (the bucket's public URL) exports get permanent links; without it they embed presigned
-  URLs (default 7 days). Credentials: `S3_ACCESS_KEY_ID` + `S3_SECRET_ACCESS_KEY` +
-  `S3_BUCKET` (+ `S3_ENDPOINT`/`S3_REGION` for R2/B2/MinIO). `npm run s3:verify` and
-  Settings → Storage → **Test S3-compatible connection** check the wiring end-to-end.
-  Full walkthrough in `S3_SETUP.md`.
-- **Render** (`render.yaml`) runs the `LOCAL` backend against a **persistent disk** mounted
-  at `/var/data`: uploads in `/var/data/storage/uploads`, exports in
-  `/var/data/storage/exports`, SQLite in `/var/data/hokk.db`. The app detects `RENDER=true`
-  / `RENDER_EXTERNAL_URL` and defaults every path onto that disk, builds image URLs from
-  the service's own `https://<service>.onrender.com` host (override with `PUBLIC_BASE_URL`
-  for a custom domain), and **refuses to boot when no disk is actually mounted** — the
-  error screen explains the fix rather than letting a deploy silently lose every
-  photograph. `npm run render:verify` proves the disk, the locations and a real upload
-  round trip; `GET /api/health` reports the same facts as JSON and backs the Blueprint's
-  health check. Full walkthrough: `RENDER.md`.
-- **GDRIVE** creates **Original** and **Final** folders under a configured parent, uploads
-  via the Drive REST API, shares each file as "anyone with the link" and stores the public
-  URL. Credentials come from `GDRIVE_SERVICE_ACCOUNT_JSON` (or `_FILE`, base64 allowed) or
-  `GDRIVE_CLIENT_ID` + `GDRIVE_CLIENT_SECRET` + `GDRIVE_REFRESH_TOKEN`. Settings → Storage
-  has a **Test connection** action that creates the folders and saves their ids.
+On **Render** (`render.yaml`) everything sits on a **persistent disk** mounted at
+`/var/data`: uploads in `/var/data/storage/uploads`, exports in
+`/var/data/storage/exports`, SQLite in `/var/data/hokk.db`. The app detects
+`RENDER=true` / `RENDER_EXTERNAL_URL` and defaults every path onto that disk,
+builds image URLs from the service's own `https://<service>.onrender.com` host
+(override with `PUBLIC_BASE_URL` for a custom domain), and **refuses to boot when
+no disk is actually mounted** — the error screen explains the fix rather than
+letting a deploy silently lose every photograph. `npm run render:verify` proves
+the disk, the locations and a real upload round trip; `GET /api/health` reports
+the same facts as JSON and backs the Blueprint's health check. Full walkthrough:
+`RENDER.md`.
 
 ## Layout
 
@@ -154,8 +142,8 @@ src/app/(app)/           authenticated pages: dashboard, products, photography, 
                          reviews, collections, categories, cultures, size-guides,
                          exports, imports, users, roles, audit, settings, account
 src/app/api/             media streaming + export downloads + /api/health
-scripts/                 db-init, bootstrap, e2e, s3/drive/render verification (via tsx)
-tests/                   379 unit + integration tests
+scripts/                 db-init, bootstrap, e2e, render verification (via tsx)
+tests/                   315 unit + integration tests
 ```
 
 ## Assumptions flagged during the build
@@ -169,27 +157,17 @@ patterns in sections 1–47 and are worth reviewing:
   Review) plus an "assigned to me" dashboard card, rather than push or email.
 - **Import** supports NEW / UPDATE / FULL modes, matching on SKU or handle, with the
   upload → detect → map → preview → validate → flag-duplicates → import sequence.
-- **Google Drive could not be verified live** in this environment — no credentials were
-  available. The adapter is implemented against the documented Drive v3 REST API and is
-  covered by unit tests with a stubbed transport, but it has not been exercised against a
-  real Drive account.
 
 ## What has actually been verified
 
 Checked on a clean checkout, not assumed:
 
 - `npx tsc --noEmit` — 0 errors.
-- `npx vitest run` — 25 files, 379 tests, all passing.
+- `npx vitest run` — 22 files, 315 tests, all passing.
 - `npm run build` — clean production build, 28 routes.
 - `npm run e2e` — full pipeline against a real SQLite file: SKU generation, completeness,
   readiness, image slots, workflow gating, and a Shopify CSV export read back and asserted
   column by column.
-- The **S3-compatible backend** is verified three ways: the SigV4 primitives reproduce the
-  worked signature example from the AWS documentation; a mock S3 server re-derives and
-  checks the signature of every request (uploads, reads, deletes, HEAD, anonymous presigned
-  GETs); and `npm run e2e` with `STORAGE_BACKEND=S3` against that mock produces a Shopify
-  CSV whose `Product image URL` values fetch anonymously with HTTP 200 — permanent
-  base-URL links and presigned links both.
 - All 18 authenticated pages fetched over HTTP with a session cookie and returned 200; the
   12 product-detail tabs likewise. Tampered and absent cookies redirect to `/login`.
 - The login path itself is covered by `tests/session.test.ts` (14 tests) and
@@ -199,8 +177,6 @@ Checked on a clean checkout, not assumed:
 - The full login chain was exercised over real HTTP: the real `loginAction` writing a cookie
   through Next's own cookie store, then that exact `Set-Cookie` authenticating
   `/dashboard`, `/products`, `/audit` and `/settings`.
-
-Not verified: the **Google Drive** storage backend, for the credential reason given above.
 
 ### Deploying to Render
 

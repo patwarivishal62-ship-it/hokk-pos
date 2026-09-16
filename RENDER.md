@@ -49,7 +49,6 @@ disk:
   sizeGB: 10
 envVars:
   - key: DATABASE_URL      value: file:/var/data/hokk.db
-  - key: STORAGE_BACKEND   value: LOCAL
   - key: UPLOAD_DIR        value: /var/data/storage/uploads
   - key: EXPORT_DIR        value: /var/data/storage/exports
   - key: SESSION_SECRET    generateValue: true     # random 256-bit value
@@ -157,7 +156,7 @@ curl -s https://hokk-pos.onrender.com/api/health | jq
 | --- | --- |
 | **Scaling** | A disk pins the service to **one instance** and disables zero-downtime deploys — every deploy stops the old instance and starts the new one (a few seconds). Fine for a single team. |
 | **Storage growth** | 10 GB ≈ 5 000 photographs at the enforced sizes. Disk size can be increased at any time (never decreased). |
-| **Going bigger** | Set `STORAGE_BACKEND=S3` with Cloudflare R2 and move `DATABASE_URL` to a remote libSQL/Turso URL: with *both* off the filesystem the disk is no longer required, the app stops gating on it, and the service can scale normally. See `S3_SETUP.md` and `VERCEL.md`. |
+| **Going bigger** | Disk size can be increased at any time (never decreased). 10 GB ≈ 5 000 photographs at the enforced sizes. |
 | **Port** | `npm start` binds to `$PORT` (Render's default is 10000); locally it stays on 3000. |
 | **Logs** | Dashboard → service → **Logs**. The boot check, storage adapter and export all log their failure reasons with the variable to fix. |
 | **Free plan** | Render's free instances do not support disks, and they sleep. Use `0.5c-512mb` or larger. |

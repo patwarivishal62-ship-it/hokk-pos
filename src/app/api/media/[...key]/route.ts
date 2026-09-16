@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
  *
  * NOTE: this endpoint is deliberately unauthenticated. Shopify's CSV importer
  * fetches Image Src over plain HTTPS with no credentials, so anything served
- * here is publicly reachable by design. Set PUBLIC_BASE_URL to this route's
- * origin only when that is acceptable; otherwise use the Google Drive backend.
+ * here is publicly reachable by design (on Render the disk-backed originals
+ * are served straight from the service's own URL).
  */
 export async function GET(_request: NextRequest, context: { params: Promise<{ key: string[] }> }) {
   const { key } = await context.params;

@@ -114,7 +114,9 @@ export interface DiskStatus {
   persistent: boolean;
   /**
    * True when the app writes data under the mount path, which makes correctness
-   * depend on the disk. A deployment on R2/S3 + a remote database does not.
+   * depend on the disk. Storage is always on local disk, so on Render this is
+   * always true: without the disk, uploads and (file-based) catalog edits are
+   * erased on every deploy.
    */
   required: boolean;
 }
@@ -136,22 +138,18 @@ export function isPersistentMount(mountPath: string, referencePath: string = pro
 /**
  * Everything the boot check and the health endpoint need to say about the disk.
  *
- * `required` is true whenever the app keeps state on the filesystem — a local
- * `file:` database or the `LOCAL` storage backend. A deployment that runs with
- * an S3-compatible bucket *and* a remote (Turso/libSQL) database needs no disk
- * at all, which is the escape hatch when the catalog outgrows one instance.
+ * Uploaded photographs always live on the filesystem (`UPLOAD_DIR`), so the
+ * disk is always required on Render — without it every image is erased on the
+ * next deploy. (`ALLOW_EPHEMERAL_STORAGE=1` is the deliberate opt-out.)
  */
 export function diskStatus(): DiskStatus {
   const mountPath = renderDiskMount();
   const exists = deviceId(mountPath) !== null;
   const persistent = exists && isPersistentMount(mountPath);
-  const dbUrl = (process.env.DATABASE_URL || '').trim() || defaultDatabaseUrl();
-  const dbIsRemote = /^(libsql|https?|wss?):/i.test(dbUrl);
-  const backend = (process.env.STORAGE_BACKEND || 'LOCAL').trim().toUpperCase();
   return {
     mountPath,
     exists,
     persistent,
-    required: !dbIsRemote || backend === 'LOCAL',
+    required: true,
   };
 }
