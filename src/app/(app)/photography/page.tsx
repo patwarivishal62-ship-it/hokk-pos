@@ -91,7 +91,10 @@ export default async function PhotographyPage({ searchParams }: { searchParams: 
         <Kpi label="Products" value={totals.products} />
         <Kpi label="Photo complete" value={totals.complete} tone="text-emerald-700" />
         <Kpi label="Outstanding shots" value={totals.outstanding} tone="text-amber-700" />
-        <Kpi label="Storage" value={storage.backend === "GDRIVE" ? "Google Drive" : "Local disk"} />
+        <Kpi
+          label="Storage"
+          value={storage.backend === 'GDRIVE' ? 'Google Drive' : storage.backend === 'S3' ? 'S3-compatible' : 'Local disk'}
+        />
       </div>
 
       {rows.length === 0 ? (

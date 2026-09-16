@@ -3,6 +3,7 @@ import { requirePermission, userCan } from '@/lib/auth';
 import { all } from '@/lib/db';
 import { assessSelection, listExports } from '@/lib/export';
 import { getSetting, getBoolean } from '@/lib/settings';
+import { buildS3Config } from '@/lib/storage';
 import { Badge, Card, EmptyState, PageHeader, formatDateTime } from '@/components/ui';
 import { ActionForm } from '@/components/action-form';
 import { runExportAction } from '@/app/actions/exports';
@@ -29,6 +30,13 @@ export default async function ExportsPage({ searchParams }: { searchParams: Prom
   const history = listExports(20);
   const publicBase = getSetting('storage.public_base_url') || process.env.PUBLIC_BASE_URL || '';
   const backend = getSetting('storage.backend') || 'LOCAL';
+  // S3 images are reachable either through the bucket's public URL or via
+  // presigned URLs minted at export time — both need working credentials.
+  const s3Config = buildS3Config();
+  const s3Reachable = Boolean(
+    s3Config.publicBaseUrl || (s3Config.accessKeyId && s3Config.secretAccessKey && s3Config.bucket),
+  );
+  const imageWarning = backend === 'S3' ? !s3Reachable : !publicBase;
   const canRun = userCan(user, 'export.run');
 
   return (
@@ -38,13 +46,15 @@ export default async function ExportsPage({ searchParams }: { searchParams: Prom
         subtitle="Nothing is exported unless it passes validation. Errors block, warnings need an explicit override."
       />
 
-      {!publicBase && (
+      {imageWarning && (
         <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <strong>No public image URL is configured.</strong> Images cannot be imported into Shopify until publicly
           accessible URLs are available.{' '}
-          {backend === 'LOCAL'
-            ? 'Set “Public base URL” in Settings → Storage, or switch the backend to Google Drive.'
-            : 'Check the Google Drive folder links in Settings → Storage.'}{' '}
+          {backend === 'S3'
+            ? 'Set the S3 public base URL in Settings → Storage (Cloudflare R2: enable public access), or provide S3 credentials so presigned URLs can be generated.'
+            : backend === 'LOCAL'
+              ? 'Set “Public base URL” in Settings → Storage, or switch the backend to Google Drive or S3-compatible storage.'
+              : 'Check the Google Drive folder links in Settings → Storage.'}{' '}
           The CSV will still be generated, with blank image URLs for affected assets.
         </div>
       )}

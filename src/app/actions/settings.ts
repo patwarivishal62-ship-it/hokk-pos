@@ -169,6 +169,63 @@ export async function testDriveConnectionAction(): Promise<ActionResult> {
   }
 }
 
+/**
+ * Verifies the S3-compatible backend end-to-end (HEAD the bucket, write a
+ * throwaway probe object, read it back, delete it) and, on success, saves the
+ * non-secret configuration to settings and switches the storage backend.
+ */
+export async function testS3ConnectionAction(): Promise<ActionResult> {
+  try {
+    const user = await requirePermission('settings.manage');
+    const { buildS3Config, S3Storage, S3NotConfiguredError } = await import('@/lib/storage');
+    const storage = new S3Storage(buildS3Config());
+    if (!storage.isConfigured()) {
+      return {
+        ok: false,
+        error: 'S3-compatible storage is not configured. Set S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY and S3_BUCKET (plus S3_ENDPOINT for Cloudflare R2 / Backblaze B2 / MinIO) in the environment.',
+      };
+    }
+    try {
+      const head = await storage.headBucket();
+      if (!head.ok) return { ok: false, error: head.error ?? `Bucket check failed with HTTP ${head.status}.` };
+      await storage.verifyAccess();
+    } catch (error) {
+      if (error instanceof S3NotConfiguredError) return { ok: false, error: error.message };
+      return { ok: false, error: `Could not reach the S3 endpoint: ${(error as Error).message}` };
+    }
+
+    const before = storage.describe();
+    setSetting('s3.bucket', before.bucket);
+    setSetting('s3.region', before.region);
+    if (before.endpoint) setSetting('s3.endpoint', before.endpoint);
+    setSetting('storage.backend', 'S3');
+
+    logAudit({
+      entityType: 'SETTING',
+      entityId: 'storage',
+      entityLabel: 'S3-compatible storage',
+      action: 'CONFIGURE',
+      userId: user.id,
+      changes: [
+        { field: 's3.bucket', label: 'S3 bucket', oldValue: null, newValue: before.bucket },
+        { field: 's3.region', label: 'S3 region', oldValue: null, newValue: before.region },
+        { field: 's3.endpoint', label: 'S3 endpoint', oldValue: null, newValue: before.endpoint },
+        { field: 'storage.backend', label: 'Storage backend', oldValue: null, newValue: 'S3' },
+      ],
+    });
+    revalidatePath('/settings');
+    const base = before.publicBaseUrl;
+    return {
+      ok: true,
+      message: `Connected to bucket “${before.bucket}” (${before.region}) — probe object written, read back and deleted. Storage backend switched to S3.${
+        base ? ` Public URLs: ${base}/<key>.` : ' No public base URL set — exports will use presigned URLs.'
+      }`,
+    };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
 
 
 
