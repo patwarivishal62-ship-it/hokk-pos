@@ -1,6 +1,6 @@
 import { requireUser, userCan } from '@/lib/auth';
 import { all } from '@/lib/db';
-import { resolvePublicUrl } from '@/lib/storage';
+import { currentBackend, resolvePublicUrl } from '@/lib/storage';
 import { buildSlotChecklist, photographyProgress } from '@/lib/images';
 import type { ProductBundle } from '@/lib/completeness';
 import { Badge, Card, Meter } from '@/components/ui';
@@ -123,13 +123,14 @@ export async function ImagesTab({
         canEdit={userCan(user, 'image.edit')}
         canApprove={userCan(user, 'image.approve')}
         canDelete={userCan(user, 'image.delete')}
+        storageLabel={currentBackend() === 'CLOUDINARY' ? 'Cloudinary cloud storage' : 'local disk storage'}
       />
 
       <Card title="Storage">
         <div className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-2">
           <div>
             <span className="text-2xs uppercase tracking-wider text-ink-500">Backend</span>
-            <p>Local disk</p>
+            <p>{currentBackend() === 'CLOUDINARY' ? 'Cloud — Cloudinary (viewable from every device)' : 'Local disk — this server only'}</p>
           </div>
           <div>
             <span className="text-2xs uppercase tracking-wider text-ink-500">Public base URL</span>

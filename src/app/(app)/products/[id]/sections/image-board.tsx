@@ -45,6 +45,7 @@ export function ImageBoard({
   canEdit,
   canApprove,
   canDelete,
+  storageLabel = 'local storage',
 }: {
   productId: string;
   images: BoardImage[];
@@ -53,6 +54,7 @@ export function ImageBoard({
   canEdit: boolean;
   canApprove: boolean;
   canDelete: boolean;
+  storageLabel?: string;
 }) {
   const [order, setOrder] = useState<string[]>(images.map((image) => image.id));
   const [dragId, setDragId] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function ImageBoard({
     <div className="flex flex-col gap-4">
       <div className="rounded border border-ink-200 bg-white px-3 py-2 text-xs text-ink-500">
         <p>
-          Assets are uploaded to <strong>local storage</strong> and filed into{' '}
+          Assets are uploaded to <strong>{storageLabel}</strong> and filed into{' '}
           <strong>Original</strong> (raw photographs) or <strong>Final</strong> (approved, export-ready). Shopify only receives
           images with a publicly reachable URL.
         </p>

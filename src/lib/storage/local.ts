@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaultUploadDir, hostingPublicBaseUrl } from '@/lib/hosting';
+import { getSetting } from '@/lib/settings';
 import type { PutInput, PutResult, ReadInput, RemoveInput, StorageStatus } from './types';
 
 export class LocalStorage {
@@ -23,8 +24,6 @@ export class LocalStorage {
     // configured environment, current request host, then provider metadata.
     let base = '';
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getSetting } = require('@/lib/settings') as typeof import('@/lib/settings');
       base = getSetting('storage.public_base_url') || '';
     } catch {
       // settings may not be ready (e.g. in tests before DB init) — ignore

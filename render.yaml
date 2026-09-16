@@ -67,6 +67,20 @@ services:
       - key: PUBLIC_BASE_URL
         sync: false
 
+      # --- Cloud image storage (recommended — see CLOUD_STORAGE.md) ---------
+      # With STORAGE_BACKEND=CLOUDINARY, uploads go to Cloudinary's free tier
+      # instead of the disk: images survive redeploys, load from a CDN, and
+      # are viewable from every device. Copy the three values from the
+      # Cloudinary Dashboard; leave STORAGE_BACKEND=LOCAL to stay on the disk.
+      - key: STORAGE_BACKEND
+        value: LOCAL
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
       # --- First Super Admin (used by `npm run bootstrap` in Render Shell) ---
       # The /setup screen creates the first account if you prefer the UI.
       - key: SEED_ADMIN_EMAIL

@@ -10,7 +10,7 @@ import { getList, getNumber } from '@/lib/settings';
 import { getProduct, recomputeProduct } from '@/lib/products';
 import { canonicalFileName, validateImageBuffer, type ImageRules } from '@/lib/images';
 import { inspectImage } from '@/lib/image-info';
-import { getStorage, resolvePublicUrl } from '@/lib/storage';
+import { backendFromRow, getStorage, getStorageFor, resolvePublicUrl } from '@/lib/storage';
 import { publicBaseUrlForRequest } from '@/lib/public-url';
 import type { ImageFolder } from '@/lib/types';
 
@@ -323,15 +323,17 @@ export async function deleteImageAction(_prev: ActionResult | null, formData: Fo
     const user = await requirePermission('image.delete');
     const productId = String(formData.get('product_id') ?? '');
     const imageId = String(formData.get('image_id') ?? '');
-    const image = get<{ file_name: string; storage_key: string; drive_file_id: string | null; is_primary: number }>(
-      'SELECT file_name, storage_key, drive_file_id, is_primary FROM product_image WHERE id = ?',
+    const image = get<{ file_name: string; storage_key: string; drive_file_id: string | null; is_primary: number; storage_backend: string }>(
+      'SELECT file_name, storage_key, drive_file_id, is_primary, storage_backend FROM product_image WHERE id = ?',
       [imageId],
     );
     if (!image) return fail('Image not found.');
     const deleteRemote = String(formData.get('delete_remote') ?? '0') === '1';
     if (deleteRemote) {
       try {
-        await getStorage().remove({ storageKey: image.storage_key, driveFileId: image.drive_file_id });
+        // Delete from wherever this row actually lives — rows uploaded before
+        // a backend switch keep their own backend.
+        await getStorageFor(backendFromRow(image.storage_backend)).remove({ storageKey: image.storage_key, driveFileId: image.drive_file_id });
       } catch (error) {
         // Keep the record removal even if remote deletion fails, but surface it.
         run('DELETE FROM product_image WHERE id = ?', [imageId]);
@@ -367,16 +369,19 @@ export async function promoteImageAction(_prev: ActionResult | null, formData: F
     const publicBaseUrl = await publicBaseUrlForRequest();
     const productId = String(formData.get('product_id') ?? '');
     const imageId = String(formData.get('image_id') ?? '');
-    const image = get<{ storage_key: string; path: string; file_name: string; mime_type: string; drive_file_id: string | null }>(
-      'SELECT storage_key, path, file_name, mime_type, drive_file_id FROM product_image WHERE id = ?',
+    const image = get<{ storage_key: string; path: string; file_name: string; mime_type: string; drive_file_id: string | null; storage_backend: string }>(
+      'SELECT storage_key, path, file_name, mime_type, drive_file_id, storage_backend FROM product_image WHERE id = ?',
       [imageId],
     );
     if (!image) return fail('Image not found.');
     const product = getProduct(productId);
     if (!product) return fail('Product not found.');
 
+    // Read from wherever this row lives, write to the current backend — so a
+    // promote after switching to cloud storage also moves the file online.
+    const source = getStorageFor(backendFromRow(image.storage_backend));
     const storage = getStorage();
-    const data = await storage.read({
+    const data = await source.read({
       storageKey: image.storage_key,
       path: image.path || undefined,
       driveFileId: image.drive_file_id,
@@ -400,8 +405,8 @@ export async function promoteImageAction(_prev: ActionResult | null, formData: F
       });
     run(
       `UPDATE product_image SET folder = 'FINAL', storage_key = ?, path = ?, public_url = ?, drive_file_id = ?,
-         drive_folder_id = ?, updated_at = ? WHERE id = ?`,
-      [stored.storageKey, stored.path || stored.storageKey, publicUrl, stored.driveFileId ?? null, stored.driveFolderId ?? null, nowIso(), imageId],
+         drive_folder_id = ?, storage_backend = ?, updated_at = ? WHERE id = ?`,
+      [stored.storageKey, stored.path || stored.storageKey, publicUrl, stored.driveFileId ?? null, stored.driveFolderId ?? null, stored.backend, nowIso(), imageId],
     );
     logAudit({
       entityType: 'PRODUCT',

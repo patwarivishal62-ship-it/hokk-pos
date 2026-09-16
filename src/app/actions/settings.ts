@@ -6,6 +6,7 @@ import { cuid, nowIso } from '@/lib/id';
 import { requirePermission } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { getSetting, setSetting } from '@/lib/settings';
+import { isCloudinaryConfigured } from '@/lib/storage';
 import { findPreset } from '@/lib/shopify/schema';
 
 export interface ActionResult {
@@ -26,6 +27,24 @@ const NUMERIC_KEYS = new Set([
 export async function saveSettingsAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
     const user = await requirePermission('settings.manage');
+
+    // Refuse to switch to the cloud before its credentials exist — otherwise
+    // the next upload would fail with a cryptic error instead of this hint.
+    const backendRaw = formData.get('setting:storage.backend');
+    if (typeof backendRaw === 'string' && backendRaw.trim() !== '') {
+      const normalized = backendRaw.trim().toUpperCase();
+      if (normalized !== 'LOCAL' && normalized !== 'CLOUDINARY') {
+        return { ok: false, error: 'Unknown storage backend. Choose LOCAL or CLOUDINARY.' };
+      }
+      if (normalized === 'CLOUDINARY' && !isCloudinaryConfigured()) {
+        return {
+          ok: false,
+          error:
+            'Cloudinary is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET in the environment, restart the app, then switch. See CLOUD_STORAGE.md.',
+        };
+      }
+    }
+
     const changes: Array<{ field: string; label: string; oldValue: unknown; newValue: unknown }> = [];
 
     for (const [key, value] of formData.entries()) {

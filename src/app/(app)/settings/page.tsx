@@ -2,12 +2,13 @@ import { requirePermission, userCan } from '@/lib/auth';
 import { all, get, parseJson } from '@/lib/db';
 import { getBoolean, getSetting } from '@/lib/settings';
 import { SCHEMA_PRESETS, findPreset } from '@/lib/shopify/schema';
-import { buildLocalConfig } from '@/lib/storage';
+import { buildLocalConfig, describeStorage } from '@/lib/storage';
 import { diskStatus, isRender, renderExternalUrl } from '@/lib/hosting';
 import { publicBaseUrlForRequest } from '@/lib/public-url';
 import { Badge, Card, PageHeader } from '@/components/ui';
 import { ActionForm } from '@/components/action-form';
 import { applyShopifyPresetAction, saveSettingsAction, updateMappingAction } from '@/app/actions/settings';
+import { migrateImagesToCloudAction, testCloudStorageAction } from '@/app/actions/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,14 @@ export default async function SettingsPage() {
   );
   const roleCount = get<{ n: number }>('SELECT COUNT(*) AS n FROM role')?.n ?? 0;
   const userCount = get<{ n: number }>('SELECT COUNT(*) AS n FROM "user"')?.n ?? 0;
+  const storage = describeStorage();
+  const imageCounts = new Map(
+    all<{ backend: string; n: number }>(
+      'SELECT storage_backend AS backend, COUNT(*) AS n FROM product_image GROUP BY storage_backend',
+    ).map((row) => [row.backend, row.n]),
+  );
+  const localImages = imageCounts.get('LOCAL') ?? 0;
+  const cloudImages = imageCounts.get('CLOUDINARY') ?? 0;
 
   const group = (prefix: string) => settings.filter((setting) => setting.key.startsWith(prefix));
 
@@ -97,12 +106,31 @@ export default async function SettingsPage() {
                     {disk.persistent ? `Render disk ${disk.mountPath}` : 'Render disk missing'}
                   </Badge>
                 )}
-                <Badge tone="neutral">Local disk</Badge>
+                <Badge tone={storage.backend === 'CLOUDINARY' ? 'success' : 'neutral'}>
+                  {storage.backend === 'CLOUDINARY' ? 'Cloud (Cloudinary)' : 'Local disk'}
+                </Badge>
               </span>
             }
           >
             <div className="flex flex-col gap-3 px-4 py-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <label className="text-xs">
+                  <span className="text-ink-600">Storage backend</span>
+                  <select
+                    className="field field-sm"
+                    name="setting:storage.backend"
+                    defaultValue={byKey.get('storage.backend')?.value || 'LOCAL'}
+                    disabled={!canManage || storage.controlledBy === 'env'}
+                  >
+                    <option value="LOCAL">LOCAL — this server&apos;s disk</option>
+                    <option value="CLOUDINARY">CLOUDINARY — shared online storage</option>
+                  </select>
+                  <span className="text-2xs text-ink-400">
+                    {storage.controlledBy === 'env'
+                      ? 'Pinned by the STORAGE_BACKEND environment variable — unset it to switch here.'
+                      : 'Where new uploads go. Switch to CLOUDINARY after adding the credentials below.'}
+                  </span>
+                </label>
                 <SettingField setting={byKey.get('storage.public_base_url')} disabled={!canManage} />
               </div>
               <div className="rounded border border-ink-200 bg-ink-50/50 px-3 py-2 text-xs text-ink-600">
@@ -111,10 +139,17 @@ export default async function SettingsPage() {
                   for approved, export-ready assets. Approving an image copies it from Original to Final.
                 </p>
                 <p className="mt-1">
-                  Files are stored at <span className="mono">{buildLocalConfig().uploadDir}</span> and served publicly at{' '}
+                  <strong>Local disk</strong> means this server&apos;s own folder (
+                  <span className="mono">{buildLocalConfig().uploadDir}</span>) — when the app runs on a laptop, that is the
+                  laptop&apos;s disk, so other devices cannot see those photos. Files are served publicly at{' '}
                   <span className="mono">/api/media/&lt;key&gt;</span> — Shopify fetches{' '}
                   <span className="mono">Product image URL</span> with no credentials. When the setting is blank, the app
                   automatically uses this request host: <span className="mono">{effectiveBase || 'not detected'}</span>.
+                </p>
+                <p className="mt-1">
+                  <strong>Cloudinary</strong> keeps one online copy every device and deployment can view the moment an
+                  upload finishes — and Shopify imports those URLs directly. Free tier, no credit card; setup takes five
+                  minutes: <span className="mono">CLOUD_STORAGE.md</span>.
                 </p>
                 <p className="mt-1">
                   On <strong>Render</strong> everything below happens automatically: uploads and the database live on the
@@ -124,6 +159,24 @@ export default async function SettingsPage() {
                     <> (Render URL: <span className="mono">{renderExternalUrl()}</span>)</>
                   ) : null}. See <span className="mono">RENDER.md</span>.
                 </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 rounded border border-ink-200 px-3 py-2 text-xs">
+                <Badge tone={storage.cloudConfigured ? 'success' : 'neutral'}>
+                  {storage.cloudConfigured ? `Cloudinary connected (${storage.cloudName})` : 'Cloudinary not configured'}
+                </Badge>
+                <span className="text-ink-500">
+                  {localImages} image(s) on local disk · {cloudImages} in the cloud
+                  {storage.cloudConfigured ? (
+                    <>
+                      {' '}· folder <span className="mono">{storage.cloudFolderPrefix}</span>
+                    </>
+                  ) : null}
+                </span>
+                {storage.cloudProblems.length > 0 && (
+                  <span className="text-ink-500">
+                    Set {storage.cloudProblems.join(' ')} in the environment, then restart the app.
+                  </span>
+                )}
               </div>
             </div>
           </Card>
@@ -156,6 +209,40 @@ export default async function SettingsPage() {
           )}
         </div>
       </ActionForm>
+
+      <Card
+        title="Cloud storage tools"
+        action={
+          <Badge tone={storage.cloudConfigured ? 'success' : 'neutral'}>
+            {storage.cloudConfigured ? 'Ready' : 'Needs credentials'}
+          </Badge>
+        }
+      >
+        <div className="flex flex-col gap-2 px-4 py-3 text-xs text-ink-600">
+          <p>
+            <strong>Test connection</strong> uploads a tiny image to Cloudinary, reads it back over its public URL and
+            deletes it — proving uploads from this deployment are viewable online. <strong>Move local images to
+            cloud</strong> copies every photo still on this server&apos;s disk to Cloudinary (100 per run; local files are
+            kept as backup). Full walkthrough: <span className="mono">CLOUD_STORAGE.md</span>.
+          </p>
+          {canManage ? (
+            <div className="flex flex-wrap gap-2">
+              <ActionForm action={testCloudStorageAction}>
+                <button className="btn btn-sm" type="submit">
+                  Test connection
+                </button>
+              </ActionForm>
+              <ActionForm action={migrateImagesToCloudAction}>
+                <button className="btn btn-sm" type="submit" disabled={!storage.cloudConfigured || localImages === 0}>
+                  Move {localImages > 0 ? `${Math.min(localImages, 100)} of ${localImages} ` : ''}local images to cloud
+                </button>
+              </ActionForm>
+            </div>
+          ) : (
+            <p className="text-ink-400">You need the settings.manage permission to run these tools.</p>
+          )}
+        </div>
+      </Card>
 
       <Card
         title="Shopify CSV schema"
