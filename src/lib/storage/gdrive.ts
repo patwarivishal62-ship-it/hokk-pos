@@ -1,6 +1,13 @@
 import { createSign } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  buildOAuthError,
+  classifyTokenError,
+  moreSpecificFailure,
+  normalizeCredential,
+  parseGoogleErrorBody,
+} from './oauth';
 
 export const DEFAULT_PUBLIC_URL_TEMPLATE = 'https://lh3.googleusercontent.com/d/{fileId}';
 
@@ -120,6 +127,7 @@ export class GoogleDriveStorage {
   private apiBase: string;
   private oauthBase: string;
   private tokenCache: TokenCache | null = null;
+  private tokenPromise: Promise<string> | null = null;
   private cachedOriginalId: string | null = null;
   private cachedFinalId: string | null = null;
   private cachedRootId: string | null = null;
@@ -139,8 +147,9 @@ export class GoogleDriveStorage {
 
   isConfigured(): boolean {
     const hasServiceAccount = Boolean(this.resolveServiceAccountJson());
-    const hasOAuth =
-      Boolean(this.config.clientId && this.config.clientSecret && this.config.refreshToken);
+    // A client secret is optional: public/installed clients (Desktop, Android,
+    // iOS, Chrome) have none, and the refresh grant works without it.
+    const hasOAuth = Boolean(normalizeCredential(this.config.clientId) && normalizeCredential(this.config.refreshToken));
     return hasServiceAccount || hasOAuth;
   }
 
@@ -174,11 +183,40 @@ export class GoogleDriveStorage {
     return null;
   }
 
+  /**
+   * Drops the cached access token so the next call mints a fresh one. Used when
+   * the Drive API rejects a token that was still within its lifetime.
+   */
+  invalidateAccessToken(): void {
+    this.tokenCache = null;
+    this.tokenPromise = null;
+  }
+
   async getAccessToken(): Promise<string> {
     const now = Date.now();
     if (this.tokenCache && this.tokenCache.expiresAt > now + 60_000) {
       return this.tokenCache.token;
     }
+    // Collapse concurrent refreshes: parallel image uploads must each wait for
+    // the same in-flight token request instead of firing their own at Google
+    // (which rate-limits them, and can invalidate the grant outright).
+    if (this.tokenPromise) return this.tokenPromise;
+    this.tokenPromise = this.mintAccessToken().then(
+      (token) => {
+        this.tokenPromise = null;
+        return token;
+      },
+      (error: unknown) => {
+        this.tokenPromise = null;
+        this.tokenCache = null;
+        throw error;
+      },
+    );
+    return this.tokenPromise;
+  }
+
+  private async mintAccessToken(): Promise<string> {
+    const now = Date.now();
 
     const saJson = this.resolveServiceAccountJson();
     if (saJson) {
@@ -208,29 +246,8 @@ export class GoogleDriveStorage {
       return json.access_token;
     }
 
-    if (this.config.clientId && this.config.clientSecret && this.config.refreshToken) {
-      const body = new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        refresh_token: this.config.refreshToken,
-      });
-      const res = await fetch(`${this.oauthBase}/token`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Failed to obtain access token (refresh token): ${res.status} ${text}`);
-      }
-      const json = (await res.json()) as { access_token: string; expires_in: number };
-      if (!json.access_token) throw new Error('No access_token in refresh token response');
-      this.tokenCache = {
-        token: json.access_token,
-        expiresAt: now + (json.expires_in ?? 3600) * 1000,
-      };
-      return json.access_token;
+    if (this.config.clientId || this.config.refreshToken) {
+      return this.mintAccessTokenWithRefreshToken(now);
     }
 
     throw new DriveNotConfiguredError(
@@ -238,35 +255,152 @@ export class GoogleDriveStorage {
     );
   }
 
+  /**
+   * OAuth refresh-token grant (installed app / web client).
+   *
+   * Credentials are normalised first: wrapping quotes and stray whitespace
+   * survive copy-paste into .env and Vercel, reach Google verbatim, and come
+   * back as a bare `unauthorized_client` that names no variable.
+   *
+   * When Google rejects the client we retry once without a client secret —
+   * public/installed clients (Desktop, Android, iOS, Chrome) have none, and
+   * sending one makes Google answer `unauthorized_client`.
+   */
+  private async mintAccessTokenWithRefreshToken(now: number): Promise<string> {
+    const clientId = normalizeCredential(this.config.clientId);
+    const clientSecret = normalizeCredential(this.config.clientSecret);
+    const refreshToken = normalizeCredential(this.config.refreshToken);
+
+    if (!clientId || !refreshToken) {
+      throw new DriveNotConfiguredError(
+        'Google Drive OAuth is incomplete: GDRIVE_CLIENT_ID and GDRIVE_REFRESH_TOKEN are both required (GDRIVE_CLIENT_SECRET too, unless the client is a public/installed client with no secret).',
+      );
+    }
+
+    const exchange = async (withSecret: boolean): Promise<{ status: number; body: string }> => {
+      const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: refreshToken,
+      });
+      if (withSecret && clientSecret) body.set('client_secret', clientSecret);
+      try {
+        const res = await fetch(`${this.oauthBase}/token`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        });
+        return { status: res.status, body: await res.text() };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to obtain access token (refresh token): network error — ${message}`);
+      }
+    };
+
+    let sentSecret = Boolean(clientSecret);
+    let attempt = await exchange(true);
+    if (attempt.status !== 200 && sentSecret) {
+      const failure = classifyTokenError(attempt.status, parseGoogleErrorBody(attempt.body));
+      if (failure === 'unauthorized_client' || failure === 'invalid_client') {
+        const withoutSecret = await exchange(false);
+        if (withoutSecret.status === 200) return this.onTokenGranted(withoutSecret.body, now);
+        // Keep whichever answer diagnoses the real problem: `invalid_grant`
+        // (the token is bad) beats `unauthorized_client` (the client is).
+        const retryFailure = classifyTokenError(withoutSecret.status, parseGoogleErrorBody(withoutSecret.body));
+        if (moreSpecificFailure(failure, retryFailure) !== failure) {
+          attempt = withoutSecret;
+          sentSecret = false;
+        }
+      }
+    }
+
+    if (attempt.status !== 200) {
+      throw buildOAuthError({
+        status: attempt.status,
+        body: attempt.body,
+        clientId,
+        clientSecret,
+        refreshToken,
+        sentClientSecret: sentSecret,
+      });
+    }
+
+    return this.onTokenGranted(attempt.body, now);
+  }
+
+  private onTokenGranted(body: string, now: number): string {
+    let json: { access_token: string; expires_in: number };
+    try {
+      json = JSON.parse(body) as { access_token: string; expires_in: number };
+    } catch {
+      throw new Error('Failed to obtain access token (refresh token): malformed response from Google');
+    }
+    if (!json.access_token) throw new Error('No access_token in refresh token response');
+    this.tokenCache = {
+      token: json.access_token,
+      expiresAt: now + (json.expires_in ?? 3600) * 1000,
+    };
+    return json.access_token;
+  }
+
   private async authHeader(): Promise<Record<string, string>> {
     const token = await this.getAccessToken();
     return { authorization: `Bearer ${token}` };
   }
 
+  /**
+   * Authenticated Drive call that recovers from a rejected token. An access
+   * token can be invalidated while still inside its lifetime (password change,
+   * app disconnected, clock skew); without this retry every upload fails until
+   * the server restarts.
+   */
+  private async driveFetch(url: string, init: RequestInit = {}, attempt = 0): Promise<Response> {
+    const auth = await this.authHeader();
+    const headers: Record<string, string> = {};
+    const declared = init.headers;
+    if (declared) {
+      if (Array.isArray(declared)) {
+        for (const [key, value] of declared) headers[key] = value;
+      } else if (typeof (declared as Headers).forEach === 'function') {
+        (declared as Headers).forEach((value, key) => {
+          headers[key] = value;
+        });
+      } else {
+        Object.assign(headers, declared as Record<string, string>);
+      }
+    }
+    Object.assign(headers, auth);
+
+    const res = await fetch(url, { ...init, headers });
+    if (res.status === 401 && attempt === 0) {
+      this.invalidateAccessToken();
+      return this.driveFetch(url, init, attempt + 1);
+    }
+    return res;
+  }
+
   private async findFolder(name: string, parentId: string | null): Promise<string | null> {
-    const headers = await this.authHeader();
     // Build query matching the mock's expectations
     let q = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     if (parentId) q += ` and '${parentId}' in parents`;
     const url = `${this.apiBase}/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents)&spaces=drive`;
-    const res = await fetch(url, { headers });
+    const res = await this.driveFetch(url);
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Drive find folder failed: ${res.status} ${text}`);
     }
     const json = (await res.json()) as { files: Array<{ id: string; name: string; parents?: string[] }> };
-    // For our mock, we need to filter more precisely by parent if provided
+    // The query already filters by parent, but re-check locally: a file listed
+    // without `parents` (shared drives, partial responses) must still match.
     let candidates = json.files;
     if (parentId) {
-      // Server already filters, but ensure
-      candidates = candidates.filter((f) => !f.parents || f.parents.includes(parentId) || true);
+      candidates = candidates.filter((f) => !f.parents || f.parents.includes(parentId));
     }
     if (candidates.length > 0) return candidates[0].id;
     return null;
   }
 
   private async createFolder(name: string, parentId: string | null): Promise<string> {
-    const headers = await this.authHeader();
     const body: Record<string, unknown> = {
       name,
       mimeType: 'application/vnd.google-apps.folder',
@@ -274,9 +408,9 @@ export class GoogleDriveStorage {
     if (parentId) body.parents = [parentId];
     else if (this.config.parentFolderId) body.parents = [this.config.parentFolderId];
     // If no parent at all, don't send parents — goes to My Drive root
-    const res = await fetch(`${this.apiBase}/drive/v3/files`, {
+    const res = await this.driveFetch(`${this.apiBase}/drive/v3/files`, {
       method: 'POST',
-      headers: { ...headers, 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -410,8 +544,6 @@ export class GoogleDriveStorage {
       const { originalFolderId, finalFolderId } = await this.ensureFolders();
       targetFolderId = opts.folder === 'ORIGINAL' ? originalFolderId : finalFolderId;
     }
-    const headers = await this.authHeader();
-
     const metadata = {
       name: opts.fileName,
       parents: [targetFolderId],
@@ -433,10 +565,9 @@ export class GoogleDriveStorage {
 
     const body = Buffer.concat([metaBuffer, headerBuffer, opts.data, footerBuffer]);
 
-    const res = await fetch(`${this.apiBase}/upload/drive/v3/files?uploadType=multipart`, {
+    const res = await this.driveFetch(`${this.apiBase}/upload/drive/v3/files?uploadType=multipart`, {
       method: 'POST',
       headers: {
-        ...headers,
         'content-type': `multipart/related; boundary=${boundary}`,
         'content-length': String(body.length),
       },
@@ -451,9 +582,9 @@ export class GoogleDriveStorage {
     if (!fileId) throw new Error('Drive upload: no file id returned');
 
     // Make it publicly readable (anyone with link)
-    const permRes = await fetch(`${this.apiBase}/drive/v3/files/${fileId}/permissions`, {
+    const permRes = await this.driveFetch(`${this.apiBase}/drive/v3/files/${fileId}/permissions`, {
       method: 'POST',
-      headers: { ...headers, 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ role: 'reader', type: 'anyone' }),
     });
     if (!permRes.ok) {
@@ -484,10 +615,7 @@ export class GoogleDriveStorage {
       // If no driveFileId, maybe it's a local fallback? Try to throw helpful error
       throw new Error('driveFileId is required to read from Google Drive');
     }
-    const headers = await this.authHeader();
-    const res = await fetch(`${this.apiBase}/drive/v3/files/${fileId}?alt=media`, {
-      headers,
-    });
+    const res = await this.driveFetch(`${this.apiBase}/drive/v3/files/${fileId}?alt=media`);
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Drive read failed: ${res.status} ${text}`);
@@ -499,10 +627,8 @@ export class GoogleDriveStorage {
   async remove(opts: { storageKey: string; driveFileId?: string | null }): Promise<void> {
     const fileId = opts.driveFileId;
     if (!fileId) return;
-    const headers = await this.authHeader();
-    const res = await fetch(`${this.apiBase}/drive/v3/files/${fileId}`, {
+    const res = await this.driveFetch(`${this.apiBase}/drive/v3/files/${fileId}`, {
       method: 'DELETE',
-      headers,
     });
     if (!res.ok && res.status !== 204 && res.status !== 404) {
       const text = await res.text();

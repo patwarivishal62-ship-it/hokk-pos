@@ -7,6 +7,7 @@ import { requirePermission } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { getSetting, setSetting } from '@/lib/settings';
 import { findPreset } from '@/lib/shopify/schema';
+import { DriveOAuthError } from '@/lib/storage/oauth';
 
 export interface ActionResult {
   ok: boolean;
@@ -138,6 +139,11 @@ export async function testDriveConnectionAction(): Promise<ActionResult> {
     } catch (error) {
       if (error instanceof DriveNotConfiguredError) {
         return { ok: false, error: 'Google Drive is not configured on this server.' };
+      }
+      // OAuth failures already read as step-by-step instructions — pass them
+      // through untouched instead of burying them in a "could not reach" prefix.
+      if (error instanceof DriveOAuthError) {
+        return { ok: false, error: error.message };
       }
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, error: `Could not reach Google Drive: ${message}` };

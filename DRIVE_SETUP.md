@@ -188,6 +188,41 @@ GDRIVE solves this — each file gets a public URL immediately.
 - Service account email must match private key
 - If base64 encoded, ensure it's standard base64, not url-safe, and decodes to JSON starting with `{`
 
+**"Failed to obtain access token (refresh token): 401 unauthorized_client"**
+
+Google is saying: *the client ID/secret this server sends is not the client that issued
+`GDRIVE_REFRESH_TOKEN`.* It never names the variable, so run the doctor first:
+
+```bash
+npm run drive:doctor
+```
+
+It prints the credential the server would send (masked, with shape checks — e.g. it flags a
+`ya29.` access token pasted where a `1//` refresh token belongs), performs one live token
+exchange, and tells you which value to fix.
+
+The usual causes, in order:
+
+1. **Token minted by a different client.** A refresh token from the OAuth Playground or another
+   tutorial will never work with your own client ID. Re-mint it with the client the app uses:
+
+   ```bash
+   # add http://127.0.0.1:8765/callback to that client's "Authorized redirect URIs" first
+   npm run drive:authorize
+   ```
+
+   Then set all three values together—`GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`,
+   `GDRIVE_REFRESH_TOKEN`—from the *same* OAuth client, and redeploy.
+2. **`ya29.` access token used as the refresh token.** Access tokens expire in an hour and can
+   never be refreshed. A refresh token starts with `1//`.
+3. **Public/installed client with no secret.** Desktop, Android, iOS and Chrome clients have no
+   client secret; sending one is itself a cause of `unauthorized_client`. The app now retries
+   once without the secret — if that succeeds, remove `GDRIVE_CLIENT_SECRET` entirely.
+4. **Wrapping quotes / stray whitespace.** Copy-paste often leaves `GDRIVE_CLIENT_ID="123…"`
+   with the quotes inside the value. These are stripped at runtime now, and the doctor flags them.
+5. **Different environment than the running server.** On Vercel the variables must be in
+   Project Settings → Environment Variables, and you must redeploy; a local `.env` is not read.
+
 **"Drive create folder failed: 403"**
 - Parent folder not shared with service account
 - Share `1iViabmuDwg8uboyWNmetl4cxoW4LsPuH` with service account email as Editor
@@ -214,6 +249,9 @@ Keep this file in repo — it documents the live folder.
 
 ---
 
-## Script added
+## Scripts
 
-- `scripts/setup-drive-structure.ts` — creates full tree under your parent, prints IDs, works with or without credentials (prints manual steps if no credentials).
+- `npm run drive:setup` — creates the full folder tree under your parent, prints IDs, works with or without credentials (prints manual steps if none are set).
+- `npm run drive:doctor` — **run this first when uploads fail.** Reports the credentials the server would send (masked), flags malformed values, performs one live token exchange and explains Google's answer.
+- `npm run drive:authorize` — mints a fresh `GDRIVE_REFRESH_TOKEN` for the client in `GDRIVE_CLIENT_ID`. This is the fix for `unauthorized_client`. Needs `http://127.0.0.1:8765/callback` added to that client's Authorized redirect URIs.
+- `npm run drive:verify` — end-to-end check: creates folders, uploads, shares, reads back and deletes a test PNG.
