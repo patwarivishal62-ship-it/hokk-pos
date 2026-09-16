@@ -57,9 +57,9 @@ export function getStorage(): LocalStorage {
  *
  * - Rows that already carry a `publicUrl` keep it (this also preserves links
  *   written by earlier Drive/S3 trials).
- * - Otherwise the URL is built from the public base URL
- *   (`storage.public_base_url` setting, `PUBLIC_BASE_URL`, or on Render the
- *   service's own `RENDER_EXTERNAL_URL`) + `/api/media/<key>`.
+ * - Otherwise the URL is built from the public base URL: an explicit setting,
+ *   the current request host supplied by the caller, or hosting metadata.
+ *   `/api/media/<key>` is appended to that base.
  * - Empty string when no base is configured — the caller treats the image as
  *   "not publicly accessible" and warns instead of exporting a dead link.
  */
@@ -68,11 +68,16 @@ export function resolvePublicUrl(opts: {
   storageKey: string;
   driveFileId: string | null;
   publicUrl?: string | null;
+  /** Current request origin, used when no URL was stored with the image. */
+  publicBaseUrl?: string;
 }): string {
   void opts.storageBackend;
   void opts.driveFileId;
   if (opts.publicUrl && opts.publicUrl.trim() !== '') return opts.publicUrl;
-  const base = (readSetting('storage.public_base_url') || hostingPublicBaseUrl()).replace(/\/$/, '');
+  const base = (
+    readSetting('storage.public_base_url') ||
+    hostingPublicBaseUrl(opts.publicBaseUrl?.trim())
+  ).replace(/\/$/, '');
   if (!base) return '';
   const encoded = opts.storageKey.split('/').map(encodeURIComponent).join('/');
   return `${base}/api/media/${encoded}`;

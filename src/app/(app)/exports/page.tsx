@@ -3,7 +3,7 @@ import { requirePermission, userCan } from '@/lib/auth';
 import { all } from '@/lib/db';
 import { assessSelection, listExports } from '@/lib/export';
 import { getSetting, getBoolean } from '@/lib/settings';
-import { hostingPublicBaseUrl } from '@/lib/hosting';
+import { publicBaseUrlForRequest } from '@/lib/public-url';
 import { Badge, Card, EmptyState, PageHeader, formatDateTime } from '@/components/ui';
 import { ActionForm } from '@/components/action-form';
 import { runExportAction } from '@/app/actions/exports';
@@ -16,6 +16,7 @@ export default async function ExportsPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const mode = ((params.mode ?? 'FULL').toUpperCase() as ExportMode) || 'FULL';
   const includeWarnings = params.warnings === '1';
+  const publicBase = await publicBaseUrlForRequest();
 
   const { assessments, summary } = assessSelection({
     mode,
@@ -23,13 +24,12 @@ export default async function ExportsPage({ searchParams }: { searchParams: Prom
     includeImages: true,
     includeCollectionColumn: getBoolean('shopify.collection_column', true),
     includeWarnings,
+    publicBaseUrl: publicBase,
   });
 
   const blocked = assessments.filter((a) => a.state === 'BLOCKED');
   const warned = assessments.filter((a) => a.state === 'WARNINGS');
   const history = listExports(20);
-  // PUBLIC_BASE_URL, or on Render the service's own URL (RENDER_EXTERNAL_URL).
-  const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
   const imageWarning = !publicBase;
   const canRun = userCan(user, 'export.run');
 

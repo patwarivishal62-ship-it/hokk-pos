@@ -1,8 +1,6 @@
 import { requireUser, userCan } from '@/lib/auth';
 import { all } from '@/lib/db';
-import { getSetting } from '@/lib/settings';
-import { getStorage, resolvePublicUrl } from '@/lib/storage';
-import { hostingPublicBaseUrl } from '@/lib/hosting';
+import { resolvePublicUrl } from '@/lib/storage';
 import { buildSlotChecklist, photographyProgress } from '@/lib/images';
 import type { ProductBundle } from '@/lib/completeness';
 import { Badge, Card, Meter } from '@/components/ui';
@@ -13,7 +11,15 @@ interface Photos {
   required: number;
 }
 
-export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; photos: Photos }) {
+export async function ImagesTab({
+  bundle,
+  photos,
+  publicBaseUrl,
+}: {
+  bundle: ProductBundle;
+  photos: Photos;
+  publicBaseUrl: string;
+}) {
   const user = await requireUser();
   const { product } = bundle;
   const templateKey = product.template_key || 'GENERIC';
@@ -33,14 +39,13 @@ export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; pho
     guidance: slot.guidance,
   }));
 
-  const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
-
   const images = bundle.images.map((image) => {
     const publicUrl = resolvePublicUrl({
       storageBackend: image.storage_backend,
       storageKey: image.storage_key,
       driveFileId: image.drive_file_id,
       publicUrl: image.public_url,
+      publicBaseUrl,
     });
     const preview =
       image.storage_backend === 'LOCAL'
@@ -106,7 +111,7 @@ export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; pho
         <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <strong>{missingPublic.length} image(s) have no public URL.</strong> Images cannot be imported into Shopify until
           publicly accessible URLs are available.{' '}
-          {`Set “Public base URL” in Settings → Storage (currently ${publicBase || 'not set'}).`}
+          {`Set “Public base URL” in Settings → Storage (current request host: ${publicBaseUrl || 'not detected'}).`}
         </div>
       )}
 
@@ -128,7 +133,7 @@ export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; pho
           </div>
           <div>
             <span className="text-2xs uppercase tracking-wider text-ink-500">Public base URL</span>
-            <p className="mono">{publicBase || 'not set'}</p>
+            <p className="mono">{publicBaseUrl || 'not detected'}</p>
           </div>
         </div>
       </Card>

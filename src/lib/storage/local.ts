@@ -18,8 +18,9 @@ export class LocalStorage {
     this.uploadDir = path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
   }
 
-  private resolvePublicBase(): string {
-    // Try to read from settings if available; fall back to env
+  private resolvePublicBase(requestBase = ''): string {
+    // Try to read from settings if available; fall back to the explicitly
+    // configured environment, current request host, then provider metadata.
     let base = '';
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -28,12 +29,12 @@ export class LocalStorage {
     } catch {
       // settings may not be ready (e.g. in tests before DB init) — ignore
     }
-    if (!base) base = hostingPublicBaseUrl();
+    if (!base) base = hostingPublicBaseUrl(requestBase);
     return base.replace(/\/$/, '');
   }
 
-  private buildPublicUrl(storageKey: string): string | null {
-    const base = this.resolvePublicBase();
+  private buildPublicUrl(storageKey: string, requestBase = ''): string | null {
+    const base = this.resolvePublicBase(requestBase);
     if (!base) return null;
     const encoded = storageKey.split('/').map(encodeURIComponent).join('/');
     return `${base}/api/media/${encoded}`;
@@ -47,7 +48,7 @@ export class LocalStorage {
     await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.promises.writeFile(fullPath, input.data);
 
-    const publicUrl = this.buildPublicUrl(storageKey);
+    const publicUrl = this.buildPublicUrl(storageKey, input.publicBaseUrl);
 
     return {
       storageKey,

@@ -19,8 +19,8 @@
 #     zero-downtime deploys, which suits a single-team catalog.
 #   * Region singapore keeps the round-trip from India low. Immutable after
 #     creation.
-#   * `RENDER=true` / `RENDER_EXTERNAL_URL` are injected by Render; the app
-#     detects them and puts uploads, exports and the database on the disk.
+#   * Render injects its service metadata; the app detects it and puts uploads,
+#     exports and the database on the disk. Image URLs use the request host.
 ###############################################################################
 
 services:
@@ -62,8 +62,8 @@ services:
       # ("Invalid Server Actions request."), which breaks login.
       - key: ALLOWED_ORIGINS
         sync: false
-      # Optional: only for a custom domain (images.houseofkalakatha.com).
-      # Left blank, the app falls back to RENDER_EXTERNAL_URL automatically.
+      # Optional: only to force a separate custom domain. Left blank, the app
+      # automatically uses the current request's forwarded HTTPS host.
       - key: PUBLIC_BASE_URL
         sync: false
 

@@ -30,7 +30,7 @@ prompt.
    | Variable | What to enter |
    | --- | --- |
    | `ALLOWED_ORIGINS` | The service's own host, e.g. `hokk-pos.onrender.com` (or a custom domain). **Required** — without it Next.js rejects every form submission behind Render's proxy (`Invalid Server Actions request.`), which breaks login. |
-   | `PUBLIC_BASE_URL` | Leave **blank** unless you use a custom domain for images. Blank means the app uses Render's own URL automatically. |
+   | `PUBLIC_BASE_URL` | Optional custom-domain override. Leave blank to use the host of the current HTTPS request automatically. |
 
    `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` are optional — see step 3.
 4. **Create** and wait for the build (`npm ci && npm run build`).
@@ -56,9 +56,10 @@ envVars:
 ```
 
 You do **not** have to set these: even with an empty environment the code
-detects Render (`RENDER` / `RENDER_SERVICE_ID` / `RENDER_EXTERNAL_URL`) and
+detects Render (`RENDER` / `RENDER_SERVICE_ID` / `RENDER_EXTERNAL_HOSTNAME`) and
 defaults to `<disk>/storage/uploads`, `<disk>/storage/exports` and
-`file:<disk>/hokk.db`, and builds image URLs from `RENDER_EXTERNAL_URL`. The
+`file:<disk>/hokk.db`. Image URLs use the forwarded host of the current request,
+with `RENDER_EXTERNAL_HOSTNAME` as a fallback. The
 Blueprint sets them explicitly so the intent is visible in the dashboard.
 
 Resulting layout on the disk:
@@ -98,10 +99,11 @@ serves uploads publicly at `/api/media/<key>` and publishes:
 https://<service>.onrender.com/api/media/final/HOKK-SAR-ZK-001/HOKK-SAR-ZK-001-HERO.jpg
 ```
 
-- This URL is derived automatically from `RENDER_EXTERNAL_URL`.
-- Set `PUBLIC_BASE_URL` (Settings → Storage, or the env var) only when you use a
-  **custom domain** — e.g. `https://images.houseofkalakatha.com`; that value
-  wins over the Render URL.
+- This URL is derived automatically from the current request's
+  `x-forwarded-host` / `host`; `RENDER_EXTERNAL_HOSTNAME` is the no-request fallback.
+- Set `PUBLIC_BASE_URL` (Settings → Storage, or the env var) only to force a
+  separate **custom domain** — e.g. `https://images.houseofkalakatha.com`; that
+  explicit value wins over the request host.
 - Custom domain at Render → service → **Settings** → **Custom Domains**, then
   update `ALLOWED_ORIGINS` to the new host as well.
 

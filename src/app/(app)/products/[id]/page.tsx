@@ -7,6 +7,7 @@ import { computeCompleteness, photographyCounters } from '@/lib/completeness';
 import { assessReadiness } from '@/lib/readiness';
 import { canTransition, nextStatuses } from '@/lib/workflow';
 import { resolvePublicUrl } from '@/lib/storage';
+import { publicBaseUrlForRequest } from '@/lib/public-url';
 import {
   Badge,
   Card,
@@ -51,6 +52,7 @@ export default async function ProductPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const user = await requireUser();
+  const publicBaseUrl = await publicBaseUrlForRequest();
   const { id } = await params;
   const { tab } = await searchParams;
   const product = getProduct(id);
@@ -68,6 +70,7 @@ export default async function ProductPage({
         storageKey: img.storage_key,
         driveFileId: img.drive_file_id,
         publicUrl: img.public_url,
+        publicBaseUrl,
       }),
     ),
   );
@@ -159,7 +162,7 @@ export default async function ProductPage({
           {activeTab === 'data' && <ProductDataTab bundle={bundle} />}
           {activeTab === 'handloom' && <HandloomTab bundle={bundle} />}
           {activeTab === 'measurements' && <MeasurementsTab bundle={bundle} measurements={productMeasurements(product)} />}
-          {activeTab === 'images' && <ImagesTab bundle={bundle} photos={photos} />}
+          {activeTab === 'images' && <ImagesTab bundle={bundle} photos={photos} publicBaseUrl={publicBaseUrl} />}
           {activeTab === 'content' && <ContentTab bundle={bundle} />}
           {activeTab === 'seo' && <SeoTab bundle={bundle} />}
           {activeTab === 'variants' && <VariantsTab bundle={bundle} tags={productTags(product)} />}

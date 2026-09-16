@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requirePermission } from '@/lib/auth';
 import { runExport } from '@/lib/export';
+import { publicBaseUrlForRequest } from '@/lib/public-url';
 import type { ExportMode } from '@/lib/types';
 
 export interface ActionResult {
@@ -16,6 +17,7 @@ export interface ActionResult {
 export async function runExportAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
     const user = await requirePermission('export.run');
+    const publicBaseUrl = await publicBaseUrlForRequest();
     const mode = (String(formData.get('mode') ?? 'FULL') || 'FULL').toUpperCase() as ExportMode;
     const ids = String(formData.get('ids') ?? '')
       .split(',')
@@ -28,6 +30,7 @@ export async function runExportAction(_prev: ActionResult | null, formData: Form
         includeImages: formData.get('include_images') !== '0',
         includeCollectionColumn: formData.get('include_collections') === '1',
         includeWarnings: formData.get('include_warnings') === '1',
+        publicBaseUrl,
       },
       user.id,
     );

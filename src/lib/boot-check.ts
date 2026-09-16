@@ -119,7 +119,7 @@ function renderDiskFailure(mountPath: string, directoryExists: boolean): BootFai
     steps: [
       'In Render, open this service → `Disks` → `Add disk`.',
       `Name it \`hokk-data\`, set the mount path to \`${mountPath}\`, and pick a size (10 GB holds roughly 5 000 catalogue photographs). Saving the disk redeploys the service.`,
-      'That is the only step — the app already writes to the disk by default, and Render supplies `RENDER_EXTERNAL_URL` for image links.',
+      'That is the only step — the app already writes to the disk by default and derives public image links from each request host.',
       'Disk mounted somewhere else? Set `RENDER_DISK_MOUNT` to that path (plus `UPLOAD_DIR` and `DATABASE_URL` if you moved them).',
       'Deliberately ephemeral? Set `ALLOW_EPHEMERAL_STORAGE=1` to start anyway; every image and edit will be lost on redeploy.',
     ],
