@@ -1,6 +1,7 @@
 import 'server-only';
 import { isInitialized } from '@/lib/bootstrap';
 import { dbAuthToken, resolveDbUrl } from '@/lib/db';
+import { diskStatus, isPersistentMount, isRender, renderDiskMount } from '@/lib/hosting';
 
 /**
  * Deployment pre-flight check.
@@ -100,6 +101,32 @@ function tokenFailure(onVercel: boolean): BootFailure {
   };
 }
 
+/**
+ * Render services have an ephemeral filesystem: without a persistent disk every
+ * uploaded photograph and every catalog edit is erased on the next deploy or
+ * restart. That is silent and unrecoverable, so the app refuses to start until
+ * the disk is attached (or storage is moved to S3-compatible object storage).
+ * `ALLOW_EPHEMERAL_STORAGE=1` is the deliberate opt-out.
+ */
+function renderDiskFailure(mountPath: string, directoryExists: boolean): BootFailure {
+  return {
+    ok: false,
+    title: 'Persistent disk is not attached',
+    intro:
+      'This service keeps its database and product photographs on the filesystem, but on Render the filesystem ' +
+      `${directoryExists ? 'outside a mounted disk ' : ''}is erased on every deploy and restart — no persistent ` +
+      `disk is mounted at \`${mountPath}\`, so nothing written there would survive.`,
+    steps: [
+      'In Render, open this service → `Disks` → `Add disk`.',
+      `Name it \`hokk-data\`, set the mount path to \`${mountPath}\`, and pick a size (10 GB holds roughly 5 000 catalogue photographs). Saving the disk redeploys the service.`,
+      'That is the only step — the app already writes to the disk by default, and Render supplies `RENDER_EXTERNAL_URL` for image links.',
+      'Disk mounted somewhere else? Set `RENDER_DISK_MOUNT` to that path (plus `UPLOAD_DIR` and `DATABASE_URL` if you moved them).',
+      'Prefer object storage? Set `STORAGE_BACKEND=S3` with Cloudflare R2 (see `S3_SETUP.md`) **and** a remote `DATABASE_URL` (Turso/libSQL, see `VERCEL.md`) — that combination needs no disk.',
+      'Deliberately ephemeral? Set `ALLOW_EPHEMERAL_STORAGE=1` to start anyway; every image and edit will be lost on redeploy.',
+    ],
+  };
+}
+
 function connectionFailure(detail: string, onVercel: boolean): BootFailure {
   return {
     ok: false,
@@ -137,6 +164,17 @@ export function checkBoot(): BootStatus {
   // defaults to one) can never work there. Fail with guidance, not a digest.
   if (onVercel && !isRemoteDbUrl(dbUrl)) {
     return vercelDbFailure();
+  }
+
+  // 2b. Render's filesystem is ephemeral — the disk must be attached before the
+  // app writes anything, otherwise images and edits vanish on the next deploy.
+  // Skipped when nothing is stored on the filesystem (S3/R2 + remote database)
+  // or when the operator explicitly opts into ephemeral storage.
+  if (isRender() && process.env.ALLOW_EPHEMERAL_STORAGE !== '1' && diskStatus().required) {
+    const mountPath = renderDiskMount();
+    if (!isPersistentMount(mountPath)) {
+      return renderDiskFailure(mountPath, diskStatus().exists);
+    }
   }
 
   // 3. Remote URL without any accepted auth token.

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3000",
+    "start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -17,7 +17,8 @@
     "drive:verify": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/verify-gdrive.ts",
     "drive:doctor": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/diagnose-oauth.ts",
     "drive:authorize": "tsx --tsconfig scripts/tsconfig.json scripts/oauth-authorize.ts",
-    "s3:verify": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/verify-s3.ts"
+    "s3:verify": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/verify-s3.ts",
+    "render:verify": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/verify-render.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

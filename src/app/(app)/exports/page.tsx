@@ -4,6 +4,7 @@ import { all } from '@/lib/db';
 import { assessSelection, listExports } from '@/lib/export';
 import { getSetting, getBoolean } from '@/lib/settings';
 import { buildS3Config } from '@/lib/storage';
+import { hostingPublicBaseUrl } from '@/lib/hosting';
 import { Badge, Card, EmptyState, PageHeader, formatDateTime } from '@/components/ui';
 import { ActionForm } from '@/components/action-form';
 import { runExportAction } from '@/app/actions/exports';
@@ -28,7 +29,8 @@ export default async function ExportsPage({ searchParams }: { searchParams: Prom
   const blocked = assessments.filter((a) => a.state === 'BLOCKED');
   const warned = assessments.filter((a) => a.state === 'WARNINGS');
   const history = listExports(20);
-  const publicBase = getSetting('storage.public_base_url') || process.env.PUBLIC_BASE_URL || '';
+  // PUBLIC_BASE_URL, or on Render the service's own URL (RENDER_EXTERNAL_URL).
+  const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
   const backend = getSetting('storage.backend') || 'LOCAL';
   // S3 images are reachable either through the bucket's public URL or via
   // presigned URLs minted at export time — both need working credentials.

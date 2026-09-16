@@ -2,6 +2,7 @@ import { requireUser, userCan } from '@/lib/auth';
 import { all } from '@/lib/db';
 import { getSetting } from '@/lib/settings';
 import { getStorage, resolvePublicUrl } from '@/lib/storage';
+import { hostingPublicBaseUrl } from '@/lib/hosting';
 import { buildSlotChecklist, photographyProgress } from '@/lib/images';
 import type { ProductBundle } from '@/lib/completeness';
 import { Badge, Card, Meter } from '@/components/ui';
@@ -33,7 +34,7 @@ export async function ImagesTab({ bundle, photos }: { bundle: ProductBundle; pho
   }));
 
   const backend = getSetting('storage.backend') || 'LOCAL';
-  const publicBase = getSetting('storage.public_base_url') || process.env.PUBLIC_BASE_URL || '';
+  const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
 
   const images = bundle.images.map((image) => {
     const publicUrl = resolvePublicUrl({

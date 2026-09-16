@@ -2,6 +2,7 @@ import 'server-only';
 import fs from 'node:fs';
 import path from 'node:path';
 import { LocalStorage } from './local';
+import { defaultUploadDir, hostingPublicBaseUrl } from '@/lib/hosting';
 import { GoogleDriveStorage, DEFAULT_PUBLIC_URL_TEMPLATE, DriveNotConfiguredError } from './gdrive';
 import { S3Storage, S3NotConfiguredError, normalizeEndpoint, presignGetUrl, publicUrlFor, resolveS3Config } from './s3';
 import { normalizeCredential, parseOAuthCredentialBlob } from './oauth';
@@ -119,10 +120,11 @@ export function buildDriveConfig(): DriveConfig {
 }
 
 export function buildLocalConfig(): { uploadDir: string } {
+  // Defaults are host-aware: on Render uploads land on the persistent disk
+  // (/var/data/storage/uploads) instead of the ephemeral container filesystem.
+  // See src/lib/hosting.ts.
   const dir =
-    process.env.UPLOAD_DIR?.trim() ||
-    readSetting('storage.upload_dir') ||
-    (process.env.VERCEL ? '/tmp/storage/uploads' : 'storage/uploads');
+    process.env.UPLOAD_DIR?.trim() || readSetting('storage.upload_dir') || defaultUploadDir();
   return { uploadDir: dir };
 }
 
@@ -222,7 +224,9 @@ export function resolvePublicUrl(opts: {
     return template.replace('{fileId}', opts.driveFileId);
   }
   if (opts.storageBackend === 'LOCAL') {
-    const base = readSetting('storage.public_base_url') || process.env.PUBLIC_BASE_URL || '';
+    // PUBLIC_BASE_URL — or, on Render, the service's own https://…onrender.com
+    // URL, which Render injects as RENDER_EXTERNAL_URL.
+    const base = readSetting('storage.public_base_url') || hostingPublicBaseUrl();
     const trimmed = base.replace(/\/$/, '');
     if (!trimmed) return '';
     const encoded = opts.storageKey.split('/').map(encodeURIComponent).join('/');

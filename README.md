@@ -44,6 +44,7 @@ the team builds it.
 | `npm run db:init` | Idempotent schema apply |
 | `npm run bootstrap` | Seed system config + super admin |
 | `npm run e2e` | End-to-end pipeline smoke test against the real database |
+| `npm run render:verify` | Render disk, upload round trip and public image URL |
 
 `npm run e2e` creates a throwaway category, culture, collection and product, fills the
 mandatory fields, uploads an image into every required slot, checks the workflow gate,
@@ -114,7 +115,8 @@ schema version, and both a Shopify CSV and an internal multi-sheet Excel workboo
 
 - **LOCAL** writes under `UPLOAD_DIR` and serves files at `/api/media/<key>`. That route is
   deliberately unauthenticated because Shopify must be able to fetch it; set
-  `PUBLIC_BASE_URL` so the generated URLs are reachable from outside.
+  `PUBLIC_BASE_URL` so the generated URLs are reachable from outside. On Render both
+  happen automatically — see the next bullet.
 - **S3** talks to any S3-compatible object store — **Cloudflare R2** (recommended:
   free tier, zero egress fees, static access keys instead of Google's expiring OAuth),
   Backblaze B2, AWS S3 or MinIO — using hand-rolled AWS SigV4 signing, no SDK. Uploads
@@ -124,6 +126,16 @@ schema version, and both a Shopify CSV and an internal multi-sheet Excel workboo
   `S3_BUCKET` (+ `S3_ENDPOINT`/`S3_REGION` for R2/B2/MinIO). `npm run s3:verify` and
   Settings → Storage → **Test S3-compatible connection** check the wiring end-to-end.
   Full walkthrough in `S3_SETUP.md`.
+- **Render** (`render.yaml`) runs the `LOCAL` backend against a **persistent disk** mounted
+  at `/var/data`: uploads in `/var/data/storage/uploads`, exports in
+  `/var/data/storage/exports`, SQLite in `/var/data/hokk.db`. The app detects `RENDER=true`
+  / `RENDER_EXTERNAL_URL` and defaults every path onto that disk, builds image URLs from
+  the service's own `https://<service>.onrender.com` host (override with `PUBLIC_BASE_URL`
+  for a custom domain), and **refuses to boot when no disk is actually mounted** — the
+  error screen explains the fix rather than letting a deploy silently lose every
+  photograph. `npm run render:verify` proves the disk, the locations and a real upload
+  round trip; `GET /api/health` reports the same facts as JSON and backs the Blueprint's
+  health check. Full walkthrough: `RENDER.md`.
 - **GDRIVE** creates **Original** and **Final** folders under a configured parent, uploads
   via the Drive REST API, shares each file as "anyone with the link" and stores the public
   URL. Credentials come from `GDRIVE_SERVICE_ACCOUNT_JSON` (or `_FILE`, base64 allowed) or
@@ -141,9 +153,9 @@ src/app/actions/         server actions (every export is an async function)
 src/app/(app)/           authenticated pages: dashboard, products, photography, content,
                          reviews, collections, categories, cultures, size-guides,
                          exports, imports, users, roles, audit, settings, account
-src/app/api/             media streaming + export downloads
-scripts/                 db-init, bootstrap, e2e (run through tsx)
-tests/                   363 unit + integration tests
+src/app/api/             media streaming + export downloads + /api/health
+scripts/                 db-init, bootstrap, e2e, s3/drive/render verification (via tsx)
+tests/                   379 unit + integration tests
 ```
 
 ## Assumptions flagged during the build
@@ -167,8 +179,8 @@ patterns in sections 1–47 and are worth reviewing:
 Checked on a clean checkout, not assumed:
 
 - `npx tsc --noEmit` — 0 errors.
-- `npx vitest run` — 24 files, 363 tests, all passing.
-- `npm run build` — clean production build, 26 routes.
+- `npx vitest run` — 25 files, 379 tests, all passing.
+- `npm run build` — clean production build, 28 routes.
 - `npm run e2e` — full pipeline against a real SQLite file: SKU generation, completeness,
   readiness, image slots, workflow gating, and a Shopify CSV export read back and asserted
   column by column.
@@ -189,6 +201,17 @@ Checked on a clean checkout, not assumed:
   `/dashboard`, `/products`, `/audit` and `/settings`.
 
 Not verified: the **Google Drive** storage backend, for the credential reason given above.
+
+### Deploying to Render
+
+`render.yaml` provisions a web service with a 10 GB persistent disk at `/var/data`; the
+host-aware defaults in `src/lib/hosting.ts` put uploads, exports and the SQLite file on
+that disk and derive the public image base URL from `RENDER_EXTERNAL_URL`. Render's
+filesystem outside a disk is erased on every deploy, so `checkBoot()` fails with an
+explicit "Persistent disk is not attached" screen (with the fix, and the
+`ALLOW_EPHEMERAL_STORAGE=1` opt-out) instead of losing data quietly. `npm run render:verify`
+checks the mount, the writability of every path, a byte-exact upload round trip and an
+anonymous fetch of the resulting `/api/media/<key>` URL. Step-by-step: `RENDER.md`.
 
 ### Serving behind a proxy
 

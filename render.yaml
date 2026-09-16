@@ -1,0 +1,87 @@
+###############################################################################
+# HOKK Product Operations — Render Blueprint
+#
+# Deploys the app as a Node web service with a **persistent disk** at
+# /var/data. Without that disk Render's filesystem is erased on every deploy and
+# restart, taking the SQLite catalog and every uploaded product photograph with
+# it — so the app refuses to boot when the disk is missing (see
+# src/lib/boot-check.ts). Everything below is explained step by step in
+# RENDER.md.
+#
+#   1. Push this repository to GitHub (already done).
+#   2. Render Dashboard → New → Blueprint → pick this repo → Apply.
+#   3. Render prompts for the two `sync: false` values below, then deploys.
+#   4. Open the service URL → /setup → create the first Super Admin.
+#
+# Notes
+#   * `plan` — disks require a paid instance type; 0.5c-512mb (legacy
+#     "Starter") is the smallest. A disk also means one instance and no
+#     zero-downtime deploys, which suits a single-team catalog.
+#   * Region singapore keeps the round-trip from India low. Immutable after
+#     creation.
+#   * `RENDER=true` / `RENDER_EXTERNAL_URL` are injected by Render; the app
+#     detects them and puts uploads, exports and the database on the disk.
+###############################################################################
+
+services:
+  - type: web
+    name: hokk-pos
+    runtime: node
+    region: singapore
+    plan: 0.5c-512mb
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    # Server actions upload straight to the disk through the Node process; a
+    # 25 MB body limit is already configured in next.config.mjs.
+    disk:
+      name: hokk-data
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: NODE_VERSION
+        value: '22.11.0'
+
+      # --- Where state lives (all on the disk) -----------------------------
+      - key: DATABASE_URL
+        value: file:/var/data/hokk.db
+      - key: STORAGE_BACKEND
+        value: LOCAL
+      - key: UPLOAD_DIR
+        value: /var/data/storage/uploads
+      - key: EXPORT_DIR
+        value: /var/data/storage/exports
+
+      # --- Secrets and URLs ------------------------------------------------
+      # Signing key for session cookies — generated once, never rotate casually
+      # (rotating signs everyone out, nothing is lost).
+      - key: SESSION_SECRET
+        generateValue: true
+      # The service's public host, e.g. hokk-pos.onrender.com — without it
+      # Next.js rejects every form submission behind Render's proxy
+      # ("Invalid Server Actions request."), which breaks login.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Optional: only for a custom domain (images.houseofkalakatha.com).
+      # Left blank, the app falls back to RENDER_EXTERNAL_URL automatically.
+      - key: PUBLIC_BASE_URL
+        sync: false
+
+      # --- First Super Admin (used by `npm run bootstrap` in Render Shell) ---
+      # The /setup screen creates the first account if you prefer the UI.
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_ADMIN_NAME
+        value: Vishal Patwari
+
+      # --- Shopify export defaults (optional; editable in Settings) ---------
+      - key: SHOPIFY_VENDOR
+        value: House of Kala Katha
+      - key: SHOPIFY_DEFAULT_STATUS
+        value: draft
+      - key: APP_NAME
+        value: HOKK Product Operations

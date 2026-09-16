@@ -10,6 +10,7 @@ import { findPreset } from '@/lib/shopify/schema';
 import { buildCatalogCsv, type ExportProductInput, type MappedColumn } from '@/lib/shopify/build';
 import { toCsv } from '@/lib/csv';
 import { buildS3Config, resolvePublicUrl } from '@/lib/storage';
+import { defaultExportDir, exportDir, hostingPublicBaseUrl } from '@/lib/hosting';
 import { logAudit } from '@/lib/audit';
 import type { ExportMode, Issue, ProductRow, ReadinessState } from '@/lib/types';
 
@@ -241,17 +242,14 @@ export function runExport(options: ExportOptions, userId: string): ExportResult 
   const stamp = nowIso();
   const number = (get<{ n: number }>('SELECT COALESCE(MAX(number),0) + 1 AS n FROM export_run')?.n ?? 1);
   const fileName = `hokk-shopify-${options.mode.toLowerCase()}-${stamp.slice(0, 10)}-${String(number).padStart(4, '0')}.csv`;
-  const dir = (() => {
-    if (process.env.EXPORT_DIR) return path.resolve(process.env.EXPORT_DIR);
-    if (process.env.VERCEL) return '/tmp/storage/exports';
-    return path.resolve(process.cwd(), 'storage/exports');
-  })();
+  // EXPORT_DIR > host-aware default (Render persistent disk, Vercel /tmp).
+  const dir = exportDir();
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, fileName);
   fs.writeFileSync(filePath, csv, 'utf8');
   const bytes = Buffer.byteLength(csv, 'utf8');
 
-  const publicBase = getSetting('storage.public_base_url') || process.env.PUBLIC_BASE_URL || '';
+  const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
   const exportId = cuid();
 
   transaction(() => {
@@ -384,8 +382,9 @@ export function readExportFile(filePath: string): Buffer | null {
   const allowedDirs = [
     path.resolve(process.cwd(), 'storage/exports'),
     '/tmp/storage/exports',
-    process.env.EXPORT_DIR ? path.resolve(process.env.EXPORT_DIR) : null,
-  ].filter(Boolean) as string[];
+    exportDir(),
+    defaultExportDir().startsWith('/') ? defaultExportDir() : path.resolve(process.cwd(), defaultExportDir()),
+  ].filter((dir, index, list) => list.indexOf(dir) === index);
   if (!allowedDirs.some((dir) => resolved.startsWith(dir))) return null;
   if (!fs.existsSync(resolved)) return null;
   return fs.readFileSync(resolved);
