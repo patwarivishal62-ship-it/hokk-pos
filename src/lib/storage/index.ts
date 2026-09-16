@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LocalStorage } from './local';
 import { GoogleDriveStorage, DEFAULT_PUBLIC_URL_TEMPLATE, DriveNotConfiguredError } from './gdrive';
+import { normalizeCredential, parseOAuthCredentialBlob } from './oauth';
 import type { StorageBackend, PutInput, PutResult, ReadInput, RemoveInput, StorageStatus, DriveConfig } from './types';
 
 export { LocalStorage, GoogleDriveStorage, DriveNotConfiguredError, DEFAULT_PUBLIC_URL_TEMPLATE };
@@ -62,12 +63,19 @@ export function buildDriveConfig(): DriveConfig {
   // Also allow direct file content via _FILE pointing to a JSON file that may be base64
   // The above already handles GDRIVE_SERVICE_ACCOUNT_FILE
 
+  // OAuth credentials. Values are normalised (a pasted value often keeps its
+  // wrapping quotes) and GDRIVE_REFRESH_TOKEN may hold a whole Google JSON blob
+  // — the consent-flow token JSON or a downloaded credentials.json — in which
+  // case its client_id/client_secret fill in for the separate env vars.
+  const oauthBlob = parseOAuthCredentialBlob(process.env.GDRIVE_REFRESH_TOKEN);
+  const rawRefreshToken = normalizeCredential(process.env.GDRIVE_REFRESH_TOKEN);
+
   const config: DriveConfig = {
     serviceAccountJson,
     serviceAccountFile: filePathEnv,
-    clientId: process.env.GDRIVE_CLIENT_ID?.trim() || undefined,
-    clientSecret: process.env.GDRIVE_CLIENT_SECRET?.trim() || undefined,
-    refreshToken: process.env.GDRIVE_REFRESH_TOKEN?.trim() || undefined,
+    clientId: normalizeCredential(process.env.GDRIVE_CLIENT_ID) || oauthBlob?.clientId || undefined,
+    clientSecret: normalizeCredential(process.env.GDRIVE_CLIENT_SECRET) || oauthBlob?.clientSecret || undefined,
+    refreshToken: oauthBlob ? oauthBlob.refreshToken : rawRefreshToken,
     parentFolderId:
       process.env.GDRIVE_PARENT_FOLDER_ID?.trim() || readSetting('drive.parent_folder_id') || undefined,
     originalFolderId:

@@ -46,7 +46,8 @@ export function ActionForm({
             state.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'
           }`}
         >
-          <p>{state.ok ? state.message : state.error}</p>
+          {/* Server errors can be multi-line (Google Drive OAuth guidance). */}
+          <p className="whitespace-pre-line">{state.ok ? state.message : state.error}</p>
           {state.warnings && state.warnings.length > 0 && (
             <ul className="mt-1 list-disc pl-4 text-amber-800">
               {state.warnings.map((warning, index) => (
