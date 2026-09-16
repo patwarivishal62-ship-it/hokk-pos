@@ -16,7 +16,8 @@
     "drive:setup": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/setup-drive-structure.ts",
     "drive:verify": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/verify-gdrive.ts",
     "drive:doctor": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/diagnose-oauth.ts",
-    "drive:authorize": "tsx --tsconfig scripts/tsconfig.json scripts/oauth-authorize.ts"
+    "drive:authorize": "tsx --tsconfig scripts/tsconfig.json scripts/oauth-authorize.ts",
+    "s3:verify": "tsx --env-file-if-exists=.env --tsconfig scripts/tsconfig.json scripts/verify-s3.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

@@ -9,7 +9,7 @@ import { assessReadiness } from '@/lib/readiness';
 import { findPreset } from '@/lib/shopify/schema';
 import { buildCatalogCsv, type ExportProductInput, type MappedColumn } from '@/lib/shopify/build';
 import { toCsv } from '@/lib/csv';
-import { resolvePublicUrl } from '@/lib/storage';
+import { buildS3Config, resolvePublicUrl } from '@/lib/storage';
 import { logAudit } from '@/lib/audit';
 import type { ExportMode, Issue, ProductRow, ReadinessState } from '@/lib/types';
 
@@ -35,6 +35,31 @@ export interface ExportSummary {
   blocked: number;
   included: number;
   imageWarnings: string[];
+}
+
+/**
+ * Blanket "images cannot be fetched" warning for the export summary. Only
+ * raised when the ACTIVE backend genuinely cannot produce public URLs:
+ * LOCAL without a public base URL, or S3 with neither a public base URL nor
+ * the credentials needed to presign. GDRIVE rows carry their own links, and
+ * per-image blanks are already reported by the CSV builder.
+ */
+function imagesReachableWarning(opts: { publicBase: string }): string[] {
+  const envBackend = process.env.STORAGE_BACKEND?.trim().toUpperCase();
+  const backend = envBackend || (getSetting('storage.backend') || 'LOCAL').toUpperCase();
+  if (backend === 'LOCAL' && !opts.publicBase) {
+    return ['No public base URL is configured — local image paths cannot be read by Shopify.'];
+  }
+  if (backend === 'S3') {
+    const s3 = buildS3Config();
+    const reachable = Boolean(
+      s3.publicBaseUrl || (s3.accessKeyId && s3.secretAccessKey && s3.bucket),
+    );
+    if (!reachable) {
+      return ['S3 storage is not configured — neither a public base URL nor credentials for presigned URLs are available, so Shopify cannot fetch images.'];
+    }
+  }
+  return [];
 }
 
 function loadMappings(): { columns: MappedColumn[]; version: string; key: string } {
@@ -300,7 +325,7 @@ export function runExport(options: ExportOptions, userId: string): ExportResult 
 
   const allWarnings = [
     ...built.warnings,
-    ...(publicBase ? [] : ['No public base URL is configured — local image paths cannot be read by Shopify.']),
+    ...imagesReachableWarning({ publicBase }),
     ...(options.includeWarnings ? ['Warning-level products were included by administrator override.'] : []),
   ];
 

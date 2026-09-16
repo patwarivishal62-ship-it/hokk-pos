@@ -4,7 +4,7 @@ import { getBoolean, getSetting } from '@/lib/settings';
 import { SCHEMA_PRESETS, findPreset } from '@/lib/shopify/schema';
 import { Badge, Card, PageHeader } from '@/components/ui';
 import { ActionForm } from '@/components/action-form';
-import { applyShopifyPresetAction, saveSettingsAction, testDriveConnectionAction, updateMappingAction } from '@/app/actions/settings';
+import { applyShopifyPresetAction, saveSettingsAction, testDriveConnectionAction, testS3ConnectionAction, updateMappingAction } from '@/app/actions/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,7 +81,7 @@ export default async function SettingsPage() {
             </p>
           </Card>
 
-          <Card title="Storage" action={<Badge tone={backend === 'GDRIVE' ? 'success' : 'neutral'}>{backend}</Badge>}>
+          <Card title="Storage" action={<Badge tone={backend === 'GDRIVE' || backend === 'S3' ? 'success' : 'neutral'}>{backend}</Badge>}>
             <div className="flex flex-col gap-3 px-4 py-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <label className="text-xs">
@@ -89,11 +89,21 @@ export default async function SettingsPage() {
                   <select className="field field-sm" name="setting:storage.backend" defaultValue={backend} disabled={!canManage}>
                     <option value="LOCAL">Local disk</option>
                     <option value="GDRIVE">Google Drive</option>
+                    <option value="S3">S3-compatible (Cloudflare R2, B2, AWS)</option>
                   </select>
                 </label>
                 {['storage.public_base_url', 'drive.parent_folder_id', 'drive.original_folder_id', 'drive.final_folder_id', 'drive.public_url_template'].map(
                   (key) => <SettingField key={key} setting={byKey.get(key)} disabled={!canManage} />,
                 )}
+                {['s3.bucket', 's3.region', 's3.endpoint', 's3.public_base_url', 's3.presign_expires'].map((key) => (
+                  <SettingField
+                    key={key}
+                    // DBs initialised before the S3 backend existed have no row yet —
+                    // fall back to the default so the field still renders.
+                    setting={byKey.get(key) ?? { key, value: getSetting(key), updated_at: '' }}
+                    disabled={!canManage}
+                  />
+                ))}
               </div>
               <div className="rounded border border-ink-200 bg-ink-50/50 px-3 py-2 text-xs text-ink-600">
                 <p>
@@ -106,6 +116,14 @@ export default async function SettingsPage() {
                   <span className="mono">{process.env.PUBLIC_BASE_URL || 'https://your-domain'}</span>) — the app serves
                   files at <span className="mono">/api/media/&lt;key&gt;</span>.
                 </p>
+                <p className="mt-1">
+                  With S3-compatible storage (recommended: <strong>Cloudflare R2</strong> — free tier, no egress fees,
+                  static access keys instead of Google's expiring OAuth), set the public base URL to the bucket's public
+                  URL (R2: enable public access → <span className="mono">https://pub-…r2.dev</span>) for permanent links.
+                  Leave it empty and exports embed presigned URLs instead — valid for the expiry below, max 7 days.
+                  Credentials live in the environment: <span className="mono">S3_ACCESS_KEY_ID</span>,{' '}
+                  <span className="mono">S3_SECRET_ACCESS_KEY</span>. See <span className="mono">S3_SETUP.md</span>.
+                </p>
               </div>
               {canManage && (
                 <ActionForm action={testDriveConnectionAction}>
@@ -115,6 +133,18 @@ export default async function SettingsPage() {
                   <p className="mt-1 text-2xs text-ink-400">
                     Requires GDRIVE_SERVICE_ACCOUNT_JSON (or OAuth refresh token) in the server environment. On success the
                     Original and Final folder ids are saved and the backend switches to Google Drive.
+                  </p>
+                </ActionForm>
+              )}
+              {canManage && (
+                <ActionForm action={testS3ConnectionAction}>
+                  <button className="btn btn-sm" type="submit">
+                    Test S3-compatible connection (R2 / B2 / AWS)
+                  </button>
+                  <p className="mt-1 text-2xs text-ink-400">
+                    Requires S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY and S3_BUCKET (+ S3_ENDPOINT for R2 / B2 / MinIO) in
+                    the server environment. Writes, reads back and deletes a probe object; on success the backend switches
+                    to S3.
                   </p>
                 </ActionForm>
               )}
@@ -265,6 +295,11 @@ const LABELS: Record<string, string> = {
   'drive.original_folder_id': 'Drive Original folder id',
   'drive.final_folder_id': 'Drive Final folder id',
   'drive.public_url_template': 'Drive public URL template',
+  's3.bucket': 'S3 bucket',
+  's3.region': 'S3 region',
+  's3.endpoint': 'S3 endpoint',
+  's3.public_base_url': 'S3 public base URL',
+  's3.presign_expires': 'Presigned URL expiry (s)',
   'shopify.vendor': 'Shopify vendor',
   'shopify.default_status': 'Shopify default status',
   'shopify.published': 'Publish to the online store on export',
@@ -287,5 +322,10 @@ const HINTS: Record<string, string> = {
   'images.min.width': 'Pixels — warns when smaller',
   'storage.public_base_url': 'Must be reachable by Shopify',
   'drive.public_url_template': '{fileId} is replaced per file',
+  's3.bucket': 'e.g. hokk-product-images',
+  's3.region': 'auto for R2 / MinIO; us-east-1 etc. for AWS',
+  's3.endpoint': 'R2: https://<account>.r2.cloudflarestorage.com',
+  's3.public_base_url': 'R2 public URL (https://pub-…r2.dev) or custom domain — empty = presigned URLs',
+  's3.presign_expires': 'Used when no public base URL is set (max 604800)',
   'shopify.default_status': 'draft, active or archived',
 };

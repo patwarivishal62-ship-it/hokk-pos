@@ -32,12 +32,20 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
   'images.recommend.bytes': '2097152',
 
   // Storage
-  'storage.backend': 'LOCAL', // LOCAL | GDRIVE
+  'storage.backend': 'LOCAL', // LOCAL | GDRIVE | S3
   'storage.public_base_url': '',
   'drive.original_folder_id': '',
   'drive.final_folder_id': '',
   'drive.parent_folder_id': '',
   'drive.public_url_template': 'https://lh3.googleusercontent.com/d/{fileId}',
+  // S3-compatible backend (Cloudflare R2 / Backblaze B2 / AWS S3 / MinIO).
+  // Credentials stay in env (S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY); these
+  // are the non-secret parts, editable from Settings → Storage.
+  's3.bucket': '',
+  's3.region': '',
+  's3.endpoint': '',
+  's3.public_base_url': '',
+  's3.presign_expires': '604800',
 
   // Shopify defaults (spec §32)
   'shopify.vendor': 'House of Kala Katha',

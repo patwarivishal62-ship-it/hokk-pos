@@ -3,11 +3,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LocalStorage } from './local';
 import { GoogleDriveStorage, DEFAULT_PUBLIC_URL_TEMPLATE, DriveNotConfiguredError } from './gdrive';
+import { S3Storage, S3NotConfiguredError, normalizeEndpoint, presignGetUrl, publicUrlFor, resolveS3Config } from './s3';
 import { normalizeCredential, parseOAuthCredentialBlob } from './oauth';
-import type { StorageBackend, PutInput, PutResult, ReadInput, RemoveInput, StorageStatus, DriveConfig } from './types';
+import type {
+  StorageBackend,
+  PutInput,
+  PutResult,
+  ReadInput,
+  RemoveInput,
+  StorageStatus,
+  DriveConfig,
+  S3Config,
+} from './types';
 
-export { LocalStorage, GoogleDriveStorage, DriveNotConfiguredError, DEFAULT_PUBLIC_URL_TEMPLATE };
-export type { StorageBackend, PutInput, PutResult, ReadInput, RemoveInput, StorageStatus, DriveConfig };
+export {
+  LocalStorage,
+  GoogleDriveStorage,
+  DriveNotConfiguredError,
+  DEFAULT_PUBLIC_URL_TEMPLATE,
+  S3Storage,
+  S3NotConfiguredError,
+};
+export type { StorageBackend, PutInput, PutResult, ReadInput, RemoveInput, StorageStatus, DriveConfig, S3Config };
 
 function readSetting(key: string): string {
   try {
@@ -109,28 +126,53 @@ export function buildLocalConfig(): { uploadDir: string } {
   return { uploadDir: dir };
 }
 
-// Simple factory with caching per backend — but respect env changes in tests
-let cached: { backend: StorageBackend; instance: LocalStorage | GoogleDriveStorage } | null = null;
+/**
+ * S3-compatible configuration (Cloudflare R2, Backblaze B2, AWS S3, MinIO).
+ * Credentials only ever come from the environment; bucket/region/endpoint and
+ * the public base URL may also be managed from Settings → Storage.
+ */
+export function buildS3Config(): S3Config {
+  const expiresRaw = process.env.S3_PRESIGN_EXPIRES?.trim() || readSetting('s3.presign_expires');
+  const parsedExpires = expiresRaw ? Number(expiresRaw) : NaN;
+  return {
+    accessKeyId: process.env.S3_ACCESS_KEY_ID?.trim() || undefined,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY?.trim() || undefined,
+    bucket: process.env.S3_BUCKET?.trim() || readSetting('s3.bucket') || undefined,
+    region: process.env.S3_REGION?.trim() || readSetting('s3.region') || undefined,
+    endpoint: normalizeEndpoint(process.env.S3_ENDPOINT?.trim() || readSetting('s3.endpoint')) ?? undefined,
+    publicBaseUrl: process.env.S3_PUBLIC_BASE_URL?.trim() || readSetting('s3.public_base_url') || undefined,
+    presignExpires: Number.isFinite(parsedExpires) ? parsedExpires : undefined,
+    forcePathStyle: /^(1|true|yes)$/i.test(process.env.S3_FORCE_PATH_STYLE?.trim() ?? ''),
+  };
+}
 
-export function getStorage(): LocalStorage | GoogleDriveStorage {
+// Simple factory with caching per backend — but respect env changes in tests
+let cached: { backend: StorageBackend; instance: LocalStorage | GoogleDriveStorage | S3Storage } | null = null;
+
+export function getStorage(): LocalStorage | GoogleDriveStorage | S3Storage {
   let backend: StorageBackend = 'LOCAL';
   const envBackend = process.env.STORAGE_BACKEND?.trim().toUpperCase();
-  if (envBackend === 'GDRIVE' || envBackend === 'LOCAL') {
+  if (envBackend === 'GDRIVE' || envBackend === 'LOCAL' || envBackend === 'S3') {
     backend = envBackend as StorageBackend;
   } else {
     const settingBackend = readSetting('storage.backend').toUpperCase();
-    if (settingBackend === 'GDRIVE' || settingBackend === 'LOCAL') backend = settingBackend as StorageBackend;
+    if (settingBackend === 'GDRIVE' || settingBackend === 'LOCAL' || settingBackend === 'S3') {
+      backend = settingBackend as StorageBackend;
+    }
   }
 
   // In tests, env may change between calls — invalidate cache if backend differs
   if (cached && cached.backend === backend) return cached.instance;
 
-  let instance: LocalStorage | GoogleDriveStorage;
+  let instance: LocalStorage | GoogleDriveStorage | S3Storage;
   if (backend === 'GDRIVE') {
     const cfg = buildDriveConfig();
     instance = new GoogleDriveStorage(cfg);
     // Ensure the instance reports correct backend even if config is empty
     (instance as unknown as { backend: StorageBackend }).backend = 'GDRIVE';
+  } else if (backend === 'S3') {
+    instance = new S3Storage(buildS3Config());
+    (instance as unknown as { backend: StorageBackend }).backend = 'S3';
   } else {
     const cfg = buildLocalConfig();
     instance = new LocalStorage(cfg);
@@ -143,6 +185,10 @@ export function getStorage(): LocalStorage | GoogleDriveStorage {
 /**
  * Resolves the publicly reachable URL for an image.
  *
+ * - S3 is handled first: with a public base URL the link is regenerated
+ *   deterministically from the key; without one a FRESH presigned URL is
+ *   minted — a stored presigned URL would silently expire, so it is never
+ *   trusted.
  * - If the row already has a publicUrl, return it (GDRIVE files are already shared).
  * - For GDRIVE, synthesize from the template + driveFileId.
  * - For LOCAL, build from PUBLIC_BASE_URL + /api/media/<key> if a base is configured.
@@ -154,6 +200,22 @@ export function resolvePublicUrl(opts: {
   driveFileId: string | null;
   publicUrl?: string | null;
 }): string {
+  if (opts.storageBackend === 'S3') {
+    const resolved = resolveS3Config(buildS3Config());
+    if (resolved.publicBaseUrl) {
+      return publicUrlFor(resolved, opts.storageKey) ?? opts.publicUrl ?? '';
+    }
+    if (resolved.accessKeyId && resolved.secretAccessKey && resolved.bucket) {
+      try {
+        return presignGetUrl(resolved, opts.storageKey.replace(/^\/+/, ''));
+      } catch {
+        return opts.publicUrl || '';
+      }
+    }
+    // Unconfigured — honour a stored permanent link, but never a stale presigned one.
+    if (opts.publicUrl && !opts.publicUrl.includes('X-Amz-Signature=')) return opts.publicUrl;
+    return '';
+  }
   if (opts.publicUrl && opts.publicUrl.trim() !== '') return opts.publicUrl;
   if (opts.storageBackend === 'GDRIVE' && opts.driveFileId) {
     const template = readSetting('drive.public_url_template') || process.env.GDRIVE_PUBLIC_URL_TEMPLATE || DEFAULT_PUBLIC_URL_TEMPLATE;

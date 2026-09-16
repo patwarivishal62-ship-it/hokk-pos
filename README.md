@@ -40,7 +40,7 @@ the team builds it.
 | `npm run dev` | Dev server on `0.0.0.0:3000` |
 | `npm run build` / `start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest — 18 files, 256 tests |
+| `npm test` | Vitest — 24 files, 363 tests |
 | `npm run db:init` | Idempotent schema apply |
 | `npm run bootstrap` | Seed system config + super admin |
 | `npm run e2e` | End-to-end pipeline smoke test against the real database |
@@ -110,11 +110,20 @@ schema version, and both a Shopify CSV and an internal multi-sheet Excel workboo
 
 ## Storage
 
-`STORAGE_BACKEND` selects `LOCAL` or `GDRIVE`.
+`STORAGE_BACKEND` selects `LOCAL`, `GDRIVE` or `S3`.
 
 - **LOCAL** writes under `UPLOAD_DIR` and serves files at `/api/media/<key>`. That route is
   deliberately unauthenticated because Shopify must be able to fetch it; set
   `PUBLIC_BASE_URL` so the generated URLs are reachable from outside.
+- **S3** talks to any S3-compatible object store — **Cloudflare R2** (recommended:
+  free tier, zero egress fees, static access keys instead of Google's expiring OAuth),
+  Backblaze B2, AWS S3 or MinIO — using hand-rolled AWS SigV4 signing, no SDK. Uploads
+  land in `original/<SKU>/<file>` and `final/<SKU>/<file>`. With `S3_PUBLIC_BASE_URL`
+  (the bucket's public URL) exports get permanent links; without it they embed presigned
+  URLs (default 7 days). Credentials: `S3_ACCESS_KEY_ID` + `S3_SECRET_ACCESS_KEY` +
+  `S3_BUCKET` (+ `S3_ENDPOINT`/`S3_REGION` for R2/B2/MinIO). `npm run s3:verify` and
+  Settings → Storage → **Test S3-compatible connection** check the wiring end-to-end.
+  Full walkthrough in `S3_SETUP.md`.
 - **GDRIVE** creates **Original** and **Final** folders under a configured parent, uploads
   via the Drive REST API, shares each file as "anyone with the link" and stores the public
   URL. Credentials come from `GDRIVE_SERVICE_ACCOUNT_JSON` (or `_FILE`, base64 allowed) or
@@ -134,7 +143,7 @@ src/app/(app)/           authenticated pages: dashboard, products, photography, 
                          exports, imports, users, roles, audit, settings, account
 src/app/api/             media streaming + export downloads
 scripts/                 db-init, bootstrap, e2e (run through tsx)
-tests/                   168 unit + integration tests
+tests/                   363 unit + integration tests
 ```
 
 ## Assumptions flagged during the build
@@ -158,11 +167,17 @@ patterns in sections 1–47 and are worth reviewing:
 Checked on a clean checkout, not assumed:
 
 - `npx tsc --noEmit` — 0 errors.
-- `npx vitest run` — 18 files, 256 tests, all passing.
+- `npx vitest run` — 24 files, 363 tests, all passing.
 - `npm run build` — clean production build, 26 routes.
 - `npm run e2e` — full pipeline against a real SQLite file: SKU generation, completeness,
   readiness, image slots, workflow gating, and a Shopify CSV export read back and asserted
   column by column.
+- The **S3-compatible backend** is verified three ways: the SigV4 primitives reproduce the
+  worked signature example from the AWS documentation; a mock S3 server re-derives and
+  checks the signature of every request (uploads, reads, deletes, HEAD, anonymous presigned
+  GETs); and `npm run e2e` with `STORAGE_BACKEND=S3` against that mock produces a Shopify
+  CSV whose `Product image URL` values fetch anonymously with HTTP 200 — permanent
+  base-URL links and presigned links both.
 - All 18 authenticated pages fetched over HTTP with a session cookie and returned 200; the
   12 product-detail tabs likewise. Tampered and absent cookies redirect to `/login`.
 - The login path itself is covered by `tests/session.test.ts` (14 tests) and
