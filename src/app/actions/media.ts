@@ -11,6 +11,7 @@ import { getProduct, recomputeProduct } from '@/lib/products';
 import { canonicalFileName, validateImageBuffer, type ImageRules } from '@/lib/images';
 import { inspectImage } from '@/lib/image-info';
 import { getStorage, resolvePublicUrl } from '@/lib/storage';
+import { publicBaseUrlForRequest } from '@/lib/public-url';
 import type { ImageFolder } from '@/lib/types';
 
 export interface ActionResult {
@@ -38,6 +39,7 @@ function imageRules(): ImageRules {
 export async function uploadImagesAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
     const user = await requirePermission('image.upload');
+    const publicBaseUrl = await publicBaseUrlForRequest();
     const productId = String(formData.get('product_id') ?? '');
     const slotId = String(formData.get('slot_id') ?? '') || null;
     const folder = (String(formData.get('folder') ?? 'ORIGINAL') || 'ORIGINAL').toUpperCase() as ImageFolder;
@@ -109,6 +111,7 @@ export async function uploadImagesAction(_prev: ActionResult | null, formData: F
         mimeType: detectedType,
         folder,
         groupKey: product.sku,
+        publicBaseUrl,
       });
 
       const publicUrl =
@@ -118,6 +121,7 @@ export async function uploadImagesAction(_prev: ActionResult | null, formData: F
           storageKey: stored.storageKey,
           driveFileId: stored.driveFileId ?? null,
           publicUrl: stored.publicUrl,
+          publicBaseUrl,
         });
 
       const maxSort = get<{ m: number }>('SELECT COALESCE(MAX(sort_order), -1) AS m FROM product_image WHERE product_id = ?', [
@@ -360,6 +364,7 @@ export async function deleteImageAction(_prev: ActionResult | null, formData: Fo
 export async function promoteImageAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
     const user = await requirePermission('image.edit');
+    const publicBaseUrl = await publicBaseUrlForRequest();
     const productId = String(formData.get('product_id') ?? '');
     const imageId = String(formData.get('image_id') ?? '');
     const image = get<{ storage_key: string; path: string; file_name: string; mime_type: string; drive_file_id: string | null }>(
@@ -382,6 +387,7 @@ export async function promoteImageAction(_prev: ActionResult | null, formData: F
       mimeType: image.mime_type,
       folder: 'FINAL',
       groupKey: product.sku,
+      publicBaseUrl,
     });
     const publicUrl =
       stored.publicUrl ??
@@ -390,6 +396,7 @@ export async function promoteImageAction(_prev: ActionResult | null, formData: F
         storageKey: stored.storageKey,
         driveFileId: stored.driveFileId ?? null,
         publicUrl: stored.publicUrl,
+        publicBaseUrl,
       });
     run(
       `UPDATE product_image SET folder = 'FINAL', storage_key = ?, path = ?, public_url = ?, drive_file_id = ?,

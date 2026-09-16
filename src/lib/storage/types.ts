@@ -17,6 +17,8 @@ export interface PutInput {
   mimeType: string;
   folder: ImageFolder;
   groupKey: string;
+  /** Request-derived origin used to publish the image immediately. */
+  publicBaseUrl?: string;
 }
 
 export interface PutResult {

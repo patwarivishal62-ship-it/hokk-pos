@@ -114,15 +114,16 @@ schema version, and both a Shopify CSV and an internal multi-sheet Excel workboo
 Images are stored on **local disk**: uploads land in `original/<SKU>/<file>` and
 `final/<SKU>/<file>` under `UPLOAD_DIR` and are served publicly at
 `/api/media/<key>`. That route is deliberately unauthenticated because Shopify
-must be able to fetch `Product image URL` with no credentials; set
-`PUBLIC_BASE_URL` (or `storage.public_base_url` in Settings) so the generated
-URLs are reachable from outside.
+must be able to fetch `Product image URL` with no credentials. The app derives
+that URL from the current request's forwarded HTTPS host automatically;
+`PUBLIC_BASE_URL` (or `storage.public_base_url` in Settings) is only needed to
+force a different custom domain.
 
 On **Render** (`render.yaml`) everything sits on a **persistent disk** mounted at
 `/var/data`: uploads in `/var/data/storage/uploads`, exports in
 `/var/data/storage/exports`, SQLite in `/var/data/hokk.db`. The app detects
-`RENDER=true` / `RENDER_EXTERNAL_URL` and defaults every path onto that disk,
-builds image URLs from the service's own `https://<service>.onrender.com` host
+Render's environment and defaults every path onto that disk, builds image URLs
+from the forwarded request host (with `RENDER_EXTERNAL_HOSTNAME` as a fallback)
 (override with `PUBLIC_BASE_URL` for a custom domain), and **refuses to boot when
 no disk is actually mounted** — the error screen explains the fix rather than
 letting a deploy silently lose every photograph. `npm run render:verify` proves
@@ -182,8 +183,9 @@ Checked on a clean checkout, not assumed:
 
 `render.yaml` provisions a web service with a 10 GB persistent disk at `/var/data`; the
 host-aware defaults in `src/lib/hosting.ts` put uploads, exports and the SQLite file on
-that disk and derive the public image base URL from `RENDER_EXTERNAL_URL`. Render's
-filesystem outside a disk is erased on every deploy, so `checkBoot()` fails with an
+that disk and derive the public image base URL from each request's forwarded host (with
+Render hostname metadata as a fallback). Render's filesystem outside a disk is erased on
+every deploy, so `checkBoot()` fails with an
 explicit "Persistent disk is not attached" screen (with the fix, and the
 `ALLOW_EPHEMERAL_STORAGE=1` opt-out) instead of losing data quietly. `npm run render:verify`
 checks the mount, the writability of every path, a byte-exact upload round trip and an

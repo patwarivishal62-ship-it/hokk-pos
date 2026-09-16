@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   if (!base) {
     warn(
       'No public base URL',
-      'set PUBLIC_BASE_URL to this service URL (Render provides RENDER_EXTERNAL_URL automatically) or Shopify CSV imports will have blank image URLs',
+      'run this check with PUBLIC_BASE_URL set; normal web requests derive the URL from their forwarded host automatically',
     );
   } else {
     console.log('  base:', base);

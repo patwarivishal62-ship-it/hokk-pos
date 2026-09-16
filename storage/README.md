@@ -13,8 +13,8 @@ storage/
 ```
 
 - Files are served at `/api/media/<key>` (unauthenticated, so Shopify can fetch)
-- Requires `PUBLIC_BASE_URL` to generate public URLs, e.g. `http://localhost:3000`
-  (on Render this defaults to the service's own URL automatically)
-- Without a public base URL, the Shopify CSV will have blank image URLs and warn
+- Public URLs are generated from the current request host automatically
+- `PUBLIC_BASE_URL` is an optional override for a dedicated/custom image domain
+- If neither a request host nor hosting metadata is available, Shopify CSVs leave image URLs blank and warn
 - On Render, `UPLOAD_DIR` is `/var/data/storage/uploads` on the persistent disk,
   so images survive deploys and restarts

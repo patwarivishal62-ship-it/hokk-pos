@@ -3,7 +3,8 @@ import { all, get, parseJson } from '@/lib/db';
 import { getBoolean, getSetting } from '@/lib/settings';
 import { SCHEMA_PRESETS, findPreset } from '@/lib/shopify/schema';
 import { buildLocalConfig } from '@/lib/storage';
-import { diskStatus, hostingPublicBaseUrl, isRender, renderExternalUrl } from '@/lib/hosting';
+import { diskStatus, isRender, renderExternalUrl } from '@/lib/hosting';
+import { publicBaseUrlForRequest } from '@/lib/public-url';
 import { Badge, Card, PageHeader } from '@/components/ui';
 import { ActionForm } from '@/components/action-form';
 import { applyShopifyPresetAction, saveSettingsAction, updateMappingAction } from '@/app/actions/settings';
@@ -23,9 +24,9 @@ export default async function SettingsPage() {
 
   const settings = all<SettingRow>('SELECT key, value, updated_at FROM setting ORDER BY key');
   const byKey = new Map(settings.map((setting) => [setting.key, setting]));
-  // What the app will actually use — includes the Render fallbacks, so the
-  // operator sees the effective base URL rather than a blank field.
-  const effectiveBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
+  // What the app will actually use — includes the current request host, so the
+  // operator sees the effective URL even when the optional field is blank.
+  const effectiveBase = await publicBaseUrlForRequest();
   const disk = diskStatus();
   const onRender = isRender();
   const schemaKey = getSetting('shopify.schema_key') || 'shopify-product-csv';
@@ -112,15 +113,16 @@ export default async function SettingsPage() {
                 <p className="mt-1">
                   Files are stored at <span className="mono">{buildLocalConfig().uploadDir}</span> and served publicly at{' '}
                   <span className="mono">/api/media/&lt;key&gt;</span> — Shopify fetches{' '}
-                  <span className="mono">Product image URL</span> with no credentials, so the public base URL must be this
-                  server (for example <span className="mono">{effectiveBase || 'https://your-domain'}</span>).
+                  <span className="mono">Product image URL</span> with no credentials. When the setting is blank, the app
+                  automatically uses this request host: <span className="mono">{effectiveBase || 'not detected'}</span>.
                 </p>
                 <p className="mt-1">
                   On <strong>Render</strong> everything below happens automatically: uploads and the database live on the
                   persistent disk at <span className="mono">{buildLocalConfig().uploadDir}</span> /{' '}
-                  <span className="mono">{disk.mountPath}</span>, and the public base URL defaults to{' '}
-                  <span className="mono">{renderExternalUrl() || 'RENDER_EXTERNAL_URL'}</span>. See{' '}
-                  <span className="mono">RENDER.md</span>.
+                  <span className="mono">{disk.mountPath}</span>, and the public base URL is detected from the request host
+                  {renderExternalUrl() ? (
+                    <> (Render URL: <span className="mono">{renderExternalUrl()}</span>)</>
+                  ) : null}. See <span className="mono">RENDER.md</span>.
                 </p>
               </div>
             </div>
@@ -286,6 +288,6 @@ const HINTS: Record<string, string> = {
   'images.min.bytes': 'Rejects files below this size',
   'images.max.bytes': 'Rejects files above this size',
   'images.min.width': 'Pixels — warns when smaller',
-  'storage.public_base_url': 'Must be reachable by Shopify',
+  'storage.public_base_url': 'Optional override — blank automatically uses the current HTTPS request host',
   'shopify.default_status': 'draft, active or archived',
 };

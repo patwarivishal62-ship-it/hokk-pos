@@ -21,6 +21,8 @@ export interface ExportOptions {
   includeCollectionColumn: boolean;
   /** Admin override: include products that only have warnings. */
   includeWarnings: boolean;
+  /** Public origin inferred from the request that previews/runs the export. */
+  publicBaseUrl?: string;
 }
 
 export interface ExportProductAssessment {
@@ -40,10 +42,9 @@ export interface ExportSummary {
 
 /**
  * Blanket "images cannot be fetched" warning for the export summary. Only
- * raised when no public base URL is configured, in which case image paths
- * cannot be read by Shopify (on Render the service URL is the automatic
- * default, so this rarely fires there). Per-image blanks are already reported
- * by the CSV builder.
+ * raised when no explicit setting, request host or provider fallback can
+ * produce a public base URL. Per-image blanks are already reported by the CSV
+ * builder.
  */
 function imagesReachableWarning(opts: { publicBase: string }): string[] {
   if (!opts.publicBase) {
@@ -138,6 +139,7 @@ export function assessSelection(options: ExportOptions): {
           storageKey: image.storage_key,
           driveFileId: image.drive_file_id,
           publicUrl: image.public_url,
+          publicBaseUrl: options.publicBaseUrl,
         }),
       ),
     );
@@ -161,7 +163,7 @@ export function assessSelection(options: ExportOptions): {
   return { assessments, summary };
 }
 
-function toExportInput(assessment: ExportProductAssessment): ExportProductInput {
+function toExportInput(assessment: ExportProductAssessment, publicBaseUrl?: string): ExportProductInput {
   const bundle = bundleFor(assessment.product);
   if (!bundle) throw new Error(`Product ${assessment.product.sku} could not be loaded.`);
   return {
@@ -178,6 +180,7 @@ function toExportInput(assessment: ExportProductAssessment): ExportProductInput 
         storageKey: image.storage_key,
         driveFileId: image.drive_file_id,
         publicUrl: image.public_url,
+        publicBaseUrl,
       }),
     })),
     collections: bundle.collections.map((collection) => collection.name),
@@ -218,7 +221,7 @@ export function runExport(options: ExportOptions, userId: string): ExportResult 
   }
 
   const { columns, version, key } = loadMappings();
-  const built = buildCatalogCsv(included.map(toExportInput), {
+  const built = buildCatalogCsv(included.map((assessment) => toExportInput(assessment, options.publicBaseUrl)), {
     columns,
     vendor: getSetting('shopify.vendor'),
     defaultStatus: (getSetting('shopify.default_status') || 'draft') as 'active' | 'draft' | 'archived',
@@ -238,7 +241,7 @@ export function runExport(options: ExportOptions, userId: string): ExportResult 
   fs.writeFileSync(filePath, csv, 'utf8');
   const bytes = Buffer.byteLength(csv, 'utf8');
 
-  const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl();
+  const publicBase = getSetting('storage.public_base_url') || hostingPublicBaseUrl(options.publicBaseUrl);
   const exportId = cuid();
 
   transaction(() => {

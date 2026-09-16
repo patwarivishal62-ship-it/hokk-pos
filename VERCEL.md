@@ -164,7 +164,7 @@ persistent disk** — see `RENDER.md`.
 
 - `DATABASE_URL` = `libsql://…` (Turso)
 - `TURSO_AUTH_TOKEN` = `…`
-- `PUBLIC_BASE_URL` = `https://your-app.vercel.app`
+- `PUBLIC_BASE_URL` = optional custom-domain override (the request host is detected automatically)
 - `ADMIN_INIT_SECRET` = random 32+ chars (optional, for `/api/admin/init`)
 - `ALLOWED_ORIGINS` = your domain (e.g. `your-app.vercel.app`), defaults to `*.e2b.app`
 - `SESSION_SECRET` = random 32+ chars

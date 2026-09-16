@@ -1,6 +1,12 @@
 import { checkBoot } from '@/lib/boot-check';
 import { dbAuthToken, resolveDbUrl } from '@/lib/db';
-import { diskStatus, hostingPublicBaseUrl, isRender, renderExternalUrl } from '@/lib/hosting';
+import {
+  diskStatus,
+  hostingPublicBaseUrl,
+  isRender,
+  renderExternalUrl,
+  requestOriginFromHeaders,
+} from '@/lib/hosting';
 import { buildLocalConfig, getStorage } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +22,7 @@ export const dynamic = 'force-dynamic';
  * missing Render disk, missing session secret) so a bad deploy is never routed
  * traffic.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const boot = checkBoot();
   const storage = getStorage();
   const disk = diskStatus();
@@ -26,9 +32,9 @@ export async function GET() {
     status: boot.ok ? 'ok' : 'error',
     app: 'hokk-pos',
     host: isRender() ? 'render' : process.env.VERCEL ? 'vercel' : 'local',
-    // Render's own URL (or PUBLIC_BASE_URL when a custom domain is set) — this
-    // is what a Shopify CSV import fetches images from.
-    publicBaseUrl: hostingPublicBaseUrl(),
+    // Explicit configuration, the host that handled this request, or provider
+    // metadata — in that order. This is what Shopify fetches images from.
+    publicBaseUrl: hostingPublicBaseUrl(requestOriginFromHeaders(request.headers)),
     storage: {
       backend: 'LOCAL' as const,
       configured: storage.isConfigured(),

@@ -1,7 +1,7 @@
 /**
  * Render.com hosting support: ephemeral-filesystem detection, host-aware
  * defaults for the upload/export directories and the database, the public base
- * URL derived from RENDER_EXTERNAL_URL, and the boot check that refuses to
+ * URL derived from hosting metadata/request headers, and the boot check that refuses to
  * start without a persistent disk.
  *
  * The disk itself cannot be created in a test, so `isPersistentMount` is
@@ -20,6 +20,7 @@ const RENDER_KEYS = [
   'RENDER',
   'RENDER_SERVICE_ID',
   'RENDER_EXTERNAL_URL',
+  'RENDER_EXTERNAL_HOSTNAME',
   'RENDER_DISK_MOUNT',
   'PUBLIC_BASE_URL',
   'UPLOAD_DIR',
@@ -28,6 +29,8 @@ const RENDER_KEYS = [
   'SESSION_SECRET',
   'ALLOW_EPHEMERAL_STORAGE',
   'VERCEL',
+  'VERCEL_URL',
+  'VERCEL_PROJECT_PRODUCTION_URL',
 ];
 
 let saved: Record<string, string | undefined>;
@@ -42,7 +45,7 @@ function tmpdir(prefix: string): string {
 function simulateRender(extra: Record<string, string> = {}): void {
   process.env.RENDER = 'true';
   process.env.RENDER_SERVICE_ID = 'srv-test123';
-  process.env.RENDER_EXTERNAL_URL = 'https://hokk-pos.onrender.com';
+  process.env.RENDER_EXTERNAL_HOSTNAME = 'hokk-pos.onrender.com';
   process.env.RENDER_DISK_MOUNT = tmpdir('hokk-disk-');
   for (const [key, value] of Object.entries(extra)) process.env[key] = value;
 }
@@ -76,7 +79,7 @@ describe('Render detection (src/lib/hosting.ts)', () => {
     expect(hosting.hostingPublicBaseUrl()).toBe('');
   });
 
-  it('detects Render from RENDER, RENDER_SERVICE_ID or RENDER_EXTERNAL_URL', async () => {
+  it('detects Render from its flag, service id, hostname or legacy URL', async () => {
     const hosting = await import('@/lib/hosting');
     process.env.RENDER = 'true';
     expect(hosting.isRender()).toBe(true);
@@ -85,6 +88,10 @@ describe('Render detection (src/lib/hosting.ts)', () => {
     process.env.RENDER_SERVICE_ID = 'srv-1';
     expect(hosting.isRender()).toBe(true);
     delete process.env.RENDER_SERVICE_ID;
+
+    process.env.RENDER_EXTERNAL_HOSTNAME = 'hokk-pos.onrender.com';
+    expect(hosting.isRender()).toBe(true);
+    delete process.env.RENDER_EXTERNAL_HOSTNAME;
 
     process.env.RENDER_EXTERNAL_URL = 'https://hokk-pos.onrender.com';
     expect(hosting.isRender()).toBe(true);
@@ -110,7 +117,7 @@ describe('Render detection (src/lib/hosting.ts)', () => {
     expect(hosting.renderDiskMount()).toBe('/mnt/hokk');
   });
 
-  it('derives the public base URL from RENDER_EXTERNAL_URL (Shopify image links)', async () => {
+  it('derives the public base URL from the documented Render hostname', async () => {
     simulateRender();
     const hosting = await import('@/lib/hosting');
     expect(hosting.hostingPublicBaseUrl()).toBe('https://hokk-pos.onrender.com');
@@ -118,6 +125,45 @@ describe('Render detection (src/lib/hosting.ts)', () => {
     // A custom domain always wins.
     process.env.PUBLIC_BASE_URL = 'https://images.houseofkalakatha.com/';
     expect(hosting.hostingPublicBaseUrl()).toBe('https://images.houseofkalakatha.com');
+  });
+
+  it('uses the forwarded request host before provider metadata', async () => {
+    simulateRender();
+    const hosting = await import('@/lib/hosting');
+    const requestHeaders = new Headers({
+      host: 'internal-service:10000',
+      'x-forwarded-host': 'catalog.houseofkalakatha.com',
+      'x-forwarded-proto': 'https',
+    });
+
+    const requestOrigin = hosting.requestOriginFromHeaders(requestHeaders);
+    expect(requestOrigin).toBe('https://catalog.houseofkalakatha.com');
+    expect(hosting.hostingPublicBaseUrl(requestOrigin)).toBe('https://catalog.houseofkalakatha.com');
+
+    process.env.PUBLIC_BASE_URL = 'https://images.houseofkalakatha.com/';
+    expect(hosting.hostingPublicBaseUrl(requestOrigin)).toBe('https://images.houseofkalakatha.com');
+  });
+
+  it('handles direct/local requests and rejects unsafe host values', async () => {
+    const hosting = await import('@/lib/hosting');
+    expect(hosting.requestOriginFromHeaders(new Headers({ host: 'localhost:3000' }))).toBe('http://localhost:3000');
+    expect(
+      hosting.requestOriginFromHeaders(
+        new Headers({ host: 'ignored', 'x-forwarded-host': 'preview.example.com, internal:3000' }),
+      ),
+    ).toBe('https://preview.example.com');
+    expect(hosting.requestOriginFromHeaders(new Headers({ host: 'example.com/path' }))).toBe('');
+    expect(hosting.requestOriginFromHeaders(new Headers({ host: 'example.com@evil.test' }))).toBe('');
+  });
+
+  it('falls back to Vercel hostname metadata outside a request', async () => {
+    const hosting = await import('@/lib/hosting');
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'hokk-pos.vercel.app';
+    process.env.VERCEL_URL = 'hokk-pos-git-preview.vercel.app';
+    expect(hosting.hostingPublicBaseUrl()).toBe('https://hokk-pos.vercel.app');
+
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    expect(hosting.hostingPublicBaseUrl()).toBe('https://hokk-pos-git-preview.vercel.app');
   });
 
   it('treats a directory on the same filesystem as not persistent', async () => {
@@ -143,6 +189,37 @@ describe('Render detection (src/lib/hosting.ts)', () => {
 });
 
 describe('storage + database defaults follow the host', () => {
+  it('publishes uploads and legacy rows from a request-derived base URL', async () => {
+    const uploadDir = tmpdir('hokk-request-host-uploads-');
+    process.env.UPLOAD_DIR = uploadDir;
+    process.env.DATABASE_URL = `file:${path.join(tmpdir('hokk-request-host-db-'), 'hokk.db')}`;
+    const { getStorage, resolvePublicUrl, _internal } = await import('@/lib/storage');
+    _internal.clearCache();
+
+    const stored = await getStorage().put({
+      data: Buffer.from('image bytes'),
+      fileName: 'HOKK-SAR-ZK-001-HERO.jpg',
+      mimeType: 'image/jpeg',
+      folder: 'FINAL',
+      groupKey: 'HOKK-SAR-ZK-001',
+      publicBaseUrl: 'https://catalog.houseofkalakatha.com',
+    });
+    expect(stored.publicUrl).toBe(
+      'https://catalog.houseofkalakatha.com/api/media/final/HOKK-SAR-ZK-001/HOKK-SAR-ZK-001-HERO.jpg',
+    );
+
+    expect(
+      resolvePublicUrl({
+        storageBackend: 'LOCAL',
+        storageKey: stored.storageKey,
+        driveFileId: null,
+        publicUrl: null,
+        publicBaseUrl: 'https://catalog.houseofkalakatha.com',
+      }),
+    ).toBe(stored.publicUrl);
+    _internal.clearCache();
+  });
+
   it('buildLocalConfig and the DB URL use the Render disk', async () => {
     simulateRender();
     const { buildLocalConfig } = await import('@/lib/storage');
@@ -279,7 +356,7 @@ describe('health endpoint', () => {
     closeDb();
     vi.resetModules();
     const { GET } = await import('@/app/api/health/route');
-    const response = await GET();
+    const response = await GET(new Request('https://hokk-pos.onrender.com/api/health'));
     const body = (await response.json()) as Record<string, unknown>;
 
     // No disk in the test environment → unhealthy, and it says exactly why.
